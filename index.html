@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#15171A" />
+    <meta name="description" content="Offline-first gym workout tracker. No account, no cloud, no ads." />
+    <title>Iron Log</title>
+
+    <!-- Oswald and JetBrains Mono are named all through the app but were
+         never actually loaded, so every platform fell back to its own
+         default and the intended typography never rendered anywhere. These
+         are latin-subset woff2 files inlined as data URIs rather than a
+         Google Fonts link: the app ships as an APK and has to look right
+         with no network at all, and a no-cloud app shouldn't make a
+         third-party request just to draw its own headings. -->
+    <link rel="stylesheet" href="./fonts.css" />
+
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Iron Log" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <style>
+      body { margin: 0; background: #15171A; }
+      #root { width: 100%; min-height: 100vh; }
+      /* Stops a double-tap on a button zooming the page mid-workout. */
+      button { touch-action: manipulation; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.jsx"></script>
+  </body>
+</html>

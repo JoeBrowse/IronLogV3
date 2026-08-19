@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iron Log — a gym tracker that stays on your phone</title>
+<meta name="description" content="Iron Log is an offline-first workout tracker for lifters. Muscle readiness, guided programmes, progress charts. No account, no cloud, nothing uploaded.">
+<meta property="og:title" content="Iron Log">
+<meta property="og:description" content="A gym tracker that stays on your phone. No account, no cloud, nothing uploaded.">
+<meta property="og:type" content="website">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root{
+    --bg:#15171A; --surface:#1C1F23; --raised:#23272C; --line:#2E3339;
+    --text:#F2F4F5; --dim:#9A9D9F; --accent:#FF6B1A; --ok:#5FB86B;
+    --amber:#E5B93E; --bad:#F26A6A;
+    --head:'Oswald',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+    --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body);
+       -webkit-font-smoothing:antialiased;line-height:1.6}
+  img{max-width:100%;display:block}
+  a{color:var(--accent)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  h1,h2,h3{font-family:var(--head);text-transform:uppercase;letter-spacing:.5px;
+           line-height:1.1;margin:0}
+  .eyebrow{font-family:var(--head);text-transform:uppercase;letter-spacing:2.5px;
+           font-size:12px;color:var(--accent)}
+
+  /* ---- hero ---- */
+  header{padding:72px 0 56px;border-bottom:1px solid var(--line)}
+  .hero{display:grid;grid-template-columns:1fr 300px;gap:56px;align-items:center}
+  h1{font-size:clamp(38px,6vw,62px);margin:14px 0 18px}
+  .lede{font-size:19px;color:var(--dim);max-width:30em;margin-bottom:12px}
+  .sub{font-size:15px;color:var(--dim);max-width:32em;margin-bottom:30px}
+  .cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .btn{display:inline-block;background:var(--accent);color:#1A1200;font-family:var(--head);
+       text-transform:uppercase;letter-spacing:.5px;font-size:15px;padding:15px 30px;
+       border-radius:13px;text-decoration:none}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  .note{font-size:13px;color:var(--dim);margin-top:14px}
+  .phone{border:1px solid var(--line);border-radius:22px;overflow:hidden;background:var(--surface)}
+
+  /* ---- generic section ---- */
+  section{padding:64px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:clamp(24px,3.4vw,34px);margin-bottom:10px}
+  .intro{color:var(--dim);max-width:44em;margin-bottom:36px}
+
+  /* ---- feature grid ---- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .card h3{font-size:16px;margin-bottom:8px}
+  .card p{margin:0;color:var(--dim);font-size:14.5px}
+
+  /* ---- screenshots ---- */
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:22px}
+  .shot figcaption{font-size:13.5px;color:var(--dim);margin-top:12px}
+  .shot img{border:1px solid var(--line);border-radius:16px}
+  figure{margin:0}
+
+  /* ---- readiness key ---- */
+  .key{display:flex;gap:20px;flex-wrap:wrap;margin-top:18px}
+  .key span{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+  /* ---- pricing ---- */
+  .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;max-width:640px}
+  .plan{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px}
+  .plan.lead{border-color:var(--accent);background:rgba(255,107,26,.07)}
+  .plan .name{font-family:var(--head);text-transform:uppercase;font-size:15px;letter-spacing:.5px}
+  .plan .price{font-family:var(--mono);font-size:26px;margin:10px 0 4px}
+  .plan .per{color:var(--dim);font-size:13px}
+  .badge{background:var(--accent);color:#1A1200;font-family:var(--head);font-size:10px;
+         text-transform:uppercase;letter-spacing:.5px;border-radius:5px;padding:3px 7px;margin-left:8px}
+
+  /* ---- privacy callout ---- */
+  .callout{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--ok);
+           border-radius:14px;padding:24px}
+  .callout ul{margin:12px 0 0;padding-left:20px;color:var(--dim)}
+  .callout li{margin-bottom:7px}
+
+  footer{padding:44px 0 60px;color:var(--dim);font-size:13.5px}
+  footer a{color:var(--dim)}
+  .fine{margin-top:18px;font-size:12.5px;opacity:.8;line-height:1.65}
+
+  @media(max-width:820px){
+    .hero{grid-template-columns:1fr;gap:36px}
+    .hero .phone{max-width:280px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hero">
+    <div>
+      <div class="eyebrow">Iron Log</div>
+      <h1>A gym tracker that stays on your phone</h1>
+      <p class="lede">Log your sets. See what has recovered. Watch the numbers go up.</p>
+      <p class="sub">
+        No account. No cloud. Nothing is uploaded, because there is nowhere to upload it to —
+        Iron Log has no server. Your training history lives on your device and leaves only when
+        you export it yourself.
+      </p>
+      <div class="cta">
+        <a class="btn" href="#get">Get Iron Log</a>
+        <a class="btn ghost" href="#privacy">How the privacy works</a>
+      </div>
+      <p class="note">Android · 7 days free · then a small monthly or annual subscription, cancel any time</p>
+    </div>
+    <figure class="phone"><img src="screens/home.png" alt="Iron Log home screen showing the muscle readiness map"></figure>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="intro">
+      Everything below is in the app already. There is no premium tier that unlocks a second
+      set of features — the subscription simply keeps the app working after the trial.
+    </p>
+    <div class="grid">
+      <div class="card">
+        <h3>Muscle readiness</h3>
+        <p>An anatomical body map, front and rear, shaded by what is actually recovered. Every muscle has its own recovery window, and how hard you trained it decides which one applies.</p>
+      </div>
+      <div class="card">
+        <h3>Guided workouts</h3>
+        <p>Pick a split and Iron Log builds the session — ranked by the exercise order you set, weighted toward what has recovered. Or choose every exercise yourself.</p>
+      </div>
+      <div class="card">
+        <h3>Programmes</h3>
+        <p>Multi-week plans you follow day by day, including presets like Push/Pull/Legs and Project Arms. Build your own, reorder any day, swap exercises mid-programme.</p>
+      </div>
+      <div class="card">
+        <h3>Progress charts</h3>
+        <p>Estimated 1RM over time per exercise, grouped by muscle. Machines and variations are tracked separately, so a Smith bench never contaminates your barbell numbers.</p>
+      </div>
+      <div class="card">
+        <h3>Honest logging</h3>
+        <p>Sets, reps, weight, and optionally reps in reserve. Supersets and drop sets. Warm-up ramps calculated from your actual working weight, not a percentage guess.</p>
+      </div>
+      <div class="card">
+        <h3>Two modes</h3>
+        <p>Simple Mode is a set, a weight, and a rep count. Advanced adds RIR, machine tracking, volume analysis and 1RM testing. Switch whenever you like.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What it looks like</h2>
+    <p class="intro">Real screens, not mockups.</p>
+    <div class="shots">
+      <figure class="shot">
+        <img src="screens/home.png" alt="Home screen with the muscle readiness body map">
+        <figcaption>The readiness map. Tap any muscle for how long it has left.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="screens/workout.png" alt="A workout in progress with warm-up suggestions">
+        <figcaption>A session in progress, with a warm-up ramp built from your last top set.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="screens/progress.png" alt="Progress charts showing estimated one-rep max over time">
+        <figcaption>Estimated 1RM over time, filed by muscle group.</figcaption>
+      </figure>
+    </div>
+    <div class="key">
+      <span><i class="dot" style="background:var(--ok)"></i> ready</span>
+      <span><i class="dot" style="background:var(--amber)"></i> under 24h to go</span>
+      <span><i class="dot" style="background:var(--bad)"></i> 24h+ to go</span>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <h2>The privacy is structural</h2>
+    <p class="intro">
+      Plenty of apps promise not to misuse your data. Iron Log is built so that there is no
+      data to misuse — not as a policy, but as an architecture.
+    </p>
+    <div class="callout">
+      <ul>
+        <li>There is no Iron Log server, and no Iron Log account. Nothing to sign up for and nothing to breach.</li>
+        <li>Your workouts are written to your device's own storage and read back from it. That is the whole data layer.</li>
+        <li>No analytics, no tracking, no ads, no third-party SDKs collecting anything.</li>
+        <li>The one network call is to Google Play, occasionally, to ask whether this account is subscribed. That is it.</li>
+        <li>Backup writes a plain JSON file to your Downloads folder. It is your data in a format you can read.</li>
+        <li>Cancelling the subscription stops the app — it does not take your history. Backup keeps working either way.</li>
+      </ul>
+    </div>
+    <p class="note"><a href="privacy.html">Read the full privacy policy</a></p>
+  </div>
+</section>
+
+<section id="get">
+  <div class="wrap">
+    <h2>Getting it</h2>
+    <p class="intro">
+      Seven days free, run by Google Play — cancel before it ends and you are not charged.
+      After that, pick whichever suits you. Prices are set in Google Play and shown in your
+      own currency in the app.
+    </p>
+    <div class="plans">
+      <div class="plan lead">
+        <div class="name">Annual <span class="badge">Best value</span></div>
+        <div class="price">See in app</div>
+        <div class="per">Billed once a year</div>
+      </div>
+      <div class="plan">
+        <div class="name">Monthly</div>
+        <div class="price">See in app</div>
+        <div class="per">Billed every month</div>
+      </div>
+    </div>
+    <!-- Once the Play listing is live, replace the href below with the store
+         URL (https://play.google.com/store/apps/details?id=com.ironlog.app) and
+         swap "See in app" above for the real prices if you want them here as
+         well. The app itself always shows whatever Play quotes, so these two
+         cards are the only place a price would ever need editing by hand. -->
+    <div class="cta" style="margin-top:30px">
+      <a class="btn" href="#" aria-disabled="true">Get it on Google Play</a>
+    </div>
+    <p class="note">Coming to Google Play. This page will link straight to the listing once it is live.</p>
+    <p class="note" style="margin-top:26px">
+      Renews automatically until cancelled. Manage or cancel any time in Google Play or from
+      inside the app. Anyone who bought the earlier one-time lifetime unlock keeps it, permanently.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>Iron Log — built for lifters who want their data to stay theirs.</div>
+    <div class="fine">
+      Muscle map artwork from <a href="https://github.com/vulovix/body-muscles">Body Muscles</a>,
+      © 2024 Ivan Vulović, used under the Apache License 2.0.
+      <br>
+      Google Play and the Google Play logo are trademarks of Google LLC.
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
