@@ -8,6 +8,11 @@ import react from '@vitejs/plugin-react'
 const { version } = JSON.parse(readFileSync('./package.json', 'utf8'))
 
 export default defineConfig({
+  // Relative asset URLs, so one build runs from anywhere: the root of
+  // Capacitor's webview in the APK, and an arbitrary subdirectory when the
+  // same bundle is served as a PWA from GitHub Pages. An absolute base
+  // would 404 every asset in the subdirectory case.
+  base: './',
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(version),

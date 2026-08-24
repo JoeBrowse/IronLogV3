@@ -617,6 +617,40 @@ const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
   {
+    version: "1.12.0",
+    date: "August 2026",
+    headline: "A form video for every exercise, one tap away.",
+    items: [
+      {
+        title: "Play button beside every lift",
+        body: "Not sure how something is done, or want to check your setup mid-session? Tap the play button next to the exercise name and Iron Log opens a YouTube search for it.",
+      },
+      {
+        title: "It follows the implement",
+        body: "The search includes whichever loading you picked, so asking about a Smith machine bench press does not show you a barbell one. That is why it is a search rather than one fixed video per exercise \u2014 and it means the link can never rot.",
+      },
+      {
+        title: "Still nothing to download",
+        body: "No videos are bundled and nothing is cached. The button opens YouTube and the app itself stays exactly as offline as it always was.",
+      },
+    ],
+  },
+  {
+    version: "1.11.1",
+    date: "August 2026",
+    headline: "The tour just shows you the app now.",
+    items: [
+      {
+        title: "No more dimming",
+        body: "The tour used to grey out the screen and draw a ring around whatever it was describing. The ring landed in the wrong place often enough to be misleading, and its backdrop was painting over the explanation text, which is why that sometimes looked washed out. All of it is gone \u2014 the real screen, and the words explaining it.",
+      },
+      {
+        title: "It still takes you there",
+        body: "Each step still opens the screen it is about and scrolls the relevant part into view. That part always worked; it was only the box drawn on top that did not.",
+      },
+    ],
+  },
+  {
     version: "1.11.0",
     date: "August 2026",
     headline: "The free trial is Google's now, and Iron Log is a subscription.",
@@ -1277,6 +1311,28 @@ function isNativeRuntime() {
   }
 }
 
+/* Registers the PWA service worker, which is what lets an installed
+   home-screen copy open with no signal.
+
+   Deliberately not registered in the APK. Capacitor already serves the
+   bundle from the device, so a cache in front of it buys nothing and can
+   only pin someone to a stale build after an update. Also skipped when
+   the page is not secure, since registration throws outside HTTPS and
+   localhost.
+
+   Failure here is never fatal: no worker means no offline launch, which
+   is a worse app but still a working one. */
+function registerServiceWorker() {
+  if (isNativeRuntime()) return;
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  if (typeof window !== "undefined" && !window.isSecureContext) return;
+  // Relative, so it registers under whatever subdirectory the app is
+  // served from and takes that path as its scope.
+  navigator.serviceWorker.register("./sw.js").catch((e) => {
+    console.warn("service worker registration failed", e);
+  });
+}
+
 /* The cached answer to "is this person subscribed". Shape:
      { entitled: boolean, checkedAt: ISO string }
    `checkedAt` is only ever moved forward by a real reply from Play, so a
@@ -1470,10 +1526,36 @@ async function restorePurchases() {
   }
 }
 
+/* The Android applicationId, which Play needs in order to resolve the
+   subscription management deep link below.
+
+   It is set by `npx cap init` in .github/workflows/android.yml, and the two
+   have to agree — Play matches on it, and a mismatch sends the user to a
+   page for an app that does not exist. It cannot be changed once an app has
+   been created in Play Console, so treat it as fixed. */
+const ANDROID_PACKAGE = "com.iron_log_workout_tracker";
+
+/* A YouTube search for how to perform a lift, rather than a curated video id.
+
+   Three reasons it is a search and not a fixed link. A search never rots,
+   where a specific video gets deleted or made private and leaves a dead
+   button in the app. There is nothing to license, attribute or ship. And
+   most importantly it follows the implement: barbell, dumbbell and Smith
+   machine bench are genuinely different movements, so a single video per
+   exercise id would be the wrong video for whichever one the lifter
+   actually picked today. */
+function formVideoUrl(name, method) {
+  // "Barbell" and the like read as noise on an exercise that is only ever
+  // done one way, but the database only lists a method when there is a
+  // real choice, so anything present here is worth searching for.
+  const query = [method, name, "form"].filter(Boolean).join(" ");
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
 // Deep link to Play's own subscription management, which is where Google
 // requires cancellation to be handled. An app that hides this gets rejected.
 function manageSubscriptionUrl() {
-  return `https://play.google.com/store/account/subscriptions?sku=${SUBSCRIPTION_ID}&package=com.ironlog.app`;
+  return `https://play.google.com/store/account/subscriptions?sku=${SUBSCRIPTION_ID}&package=${ANDROID_PACKAGE}`;
 }
 
 /* ---------------------------------------------------------------
@@ -6367,8 +6449,23 @@ function ExerciseCard({
           <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 3 }}>
             {ex.type === "compound" ? "Compound" : ex.type === "isolation" ? "Isolation" : "Mobility"}
           </div>
-          <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 17, textTransform: "uppercase" }}>
-            {ex.name}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 17, textTransform: "uppercase" }}>
+              {ex.name}
+            </div>
+            {ex.type !== "mobility" && (
+              <a
+                data-tour="form-video"
+                href={formVideoUrl(ex.name, method)}
+                target="_blank"
+                rel="noreferrer"
+                title={`How to do ${ex.name}`}
+                aria-label={`Watch how to do ${ex.name}`}
+                style={{ width: 22, height: 22, borderRadius: 6, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, color: COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, textDecoration: "none" }}
+              >
+                <Play size={11} />
+              </a>
+            )}
           </div>
           <div style={{ color: COLORS.textDim, fontSize: 12 }}>{ex.muscle}</div>
         </div>
@@ -9790,6 +9887,9 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           <FeatureItem name="Rest timer">
             Start a timer between sets from any exercise. It pins to the top of the screen and stays visible while you scroll — pause it, add time, or skip it.
           </FeatureItem>
+          <FeatureItem name="Form videos">
+            A play button beside every exercise name opens a YouTube search for that lift. It includes the implement you are using, so a Smith machine bench press does not show you a barbell one.
+          </FeatureItem>
           <FeatureItem name="Supersets & drop sets (Advanced Mode)">
             From an exercise's menu, link it with another into a superset, or add a drop set to a working set for extra intensity.
           </FeatureItem>
@@ -10257,6 +10357,13 @@ const TOUR_STEPS = [
     target: "set-rows",
   },
   {
+    icon: <Play size={26} />,
+    title: "Not Sure How It's Done?",
+    body: "Every exercise has a play button beside its name. Tap it and Iron Log opens a YouTube search for that lift — and it follows the implement you picked, so asking about a Smith machine bench press does not show you a barbell one.",
+    screen: "workoutPreview",
+    target: "form-video",
+  },
+  {
     icon: <Sparkles size={26} />,
     title: "How Hard Was That Set?",
     body: "In Advanced Mode each set gets a blue circle on the right. Tap it and pick how many reps you had left in the tank — 0 means you went to failure, 3+ means you stopped well short. It takes one tap and it changes the readiness map: a muscle taken to failure is given longer to recover than one worked comfortably.",
@@ -10376,8 +10483,15 @@ function TourWorkoutPreviewScreen() {
 
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 15, textTransform: "uppercase" }}>
-            Barbell Bench Press
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 15, textTransform: "uppercase" }}>
+              Barbell Bench Press
+            </div>
+            {/* Inert, like everything else on this preview — the tour should
+                not launch YouTube out from under the person reading it. */}
+            <div data-tour="form-video" style={{ width: 22, height: 22, borderRadius: 6, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, color: COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Play size={11} />
+            </div>
           </div>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, color: COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <SettingsIcon size={14} />
@@ -10418,65 +10532,46 @@ function TourWorkoutPreviewScreen() {
   );
 }
 
-// Finds the real screen element a tour step is pointing at (marked with a
-// matching data-tour="<key>" attribute) and tracks its on-screen position,
-// so FeatureTour can draw a spotlight ring around it instead of blacking
-// out the whole screen. A MutationObserver re-measures whenever the DOM
-// changes, since the target usually doesn't exist yet on the render where
-// stepIndex changes — App() navigates to the step's screen in its own
-// effect a beat later, mounting the target after this one runs.
-function useTourTargetRect(targetKey) {
-  const [rect, setRect] = useState(null);
+// Brings the element a step refers to into the band above the tour text, so
+// the thing being described is actually on screen when it is described.
+//
+// It deliberately does not measure the target or draw anything around it.
+// Three attempts at a spotlight ring all produced highlights that landed in
+// the wrong place on some steps, and a box drawn around the wrong thing is
+// worse than no box at all — it tells the reader to look somewhere the text
+// isn't talking about. Scrolling is the part that was always working.
+function useScrollTourTargetIntoView(targetKey) {
   useEffect(() => {
-    if (!targetKey) {
-      setRect(null);
-      return;
-    }
+    if (!targetKey) return undefined;
     let frame = null;
-    function measure() {
+    let found = false;
+    function bring() {
       const el = document.querySelector(`[data-tour="${targetKey}"]`);
-      if (!el) {
-        setRect(null);
-        return;
+      if (!el) return;
+      found = true;
+      const r = el.getBoundingClientRect();
+      // The text panel owns roughly the bottom half, so aim for the middle
+      // of the band above it rather than the middle of the screen.
+      const safeCenter = window.innerHeight * 0.26;
+      if (r.top < 56 || r.bottom > window.innerHeight * 0.52) {
+        window.scrollBy({ top: r.top + r.height / 2 - safeCenter, behavior: "smooth" });
       }
-      let r = el.getBoundingClientRect();
-      // The tour card covers roughly the bottom half of the screen, so a
-      // target sitting lower than that (or tucked under the top bar) would
-      // be highlighted somewhere the user can't actually see. Scroll it
-      // into the safe zone above the card first, then measure for real.
-      const safeCenter = window.innerHeight * 0.28;
-      if (r.top < 56 || r.bottom > window.innerHeight * 0.5) {
-        window.scrollBy(0, r.top + r.height / 2 - safeCenter);
-        r = el.getBoundingClientRect();
-      }
-      // A target taller than the band above the card would draw a ring whose
-      // bottom edge is hidden behind the card and whose top edge reads as a
-      // stray rule across the screen. Clamp it to what is actually visible so
-      // the highlight always looks like a highlight.
-      const visibleBottom = window.innerHeight * 0.56 - 14;
-      const top = Math.max(r.top, 56);
-      const height = Math.max(36, Math.min(r.height - (top - r.top), visibleBottom - top));
-      // A full-width target produced a ring wider than the screen, so both of
-      // its side edges sat off-canvas and the highlight read as two loose
-      // horizontal rules. Keep it inside the viewport.
-      const left = Math.max(r.left, 10);
-      const right = Math.min(r.left + r.width, window.innerWidth - 10);
-      setRect({ top, left, width: Math.max(40, right - left), height });
     }
-    measure();
+    bring();
+    // The target usually does not exist on the render where stepIndex
+    // changes — App() navigates to the step's screen in its own effect a
+    // beat later, mounting the target after this one runs.
     const observer = new MutationObserver(() => {
+      if (found) return;
       if (frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(measure);
+      frame = requestAnimationFrame(bring);
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", measure);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", measure);
       if (frame) cancelAnimationFrame(frame);
     };
   }, [targetKey]);
-  return rect;
 }
 
 // Controlled by App() — stepIndex/onNext/onPrev/onSkip live there so the
@@ -10484,40 +10579,17 @@ function useTourTargetRect(targetKey) {
 function FeatureTour({ stepIndex, onNext, onPrev, onSkip }) {
   const step = TOUR_STEPS[stepIndex];
   const last = stepIndex === TOUR_STEPS.length - 1;
-  const rect = useTourTargetRect(step.target);
+  useScrollTourTargetIntoView(step.target);
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" }}>
-      <style>{"@keyframes ironlogTourBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }"}</style>
-
-      {rect ? (
-        // Spotlight: a ring sized exactly to the target with a huge
-        // box-shadow standing in for the backdrop, so everywhere except
-        // the ring is dimmed and the referenced UI stays fully visible.
-        <div
-          style={{
-            position: "fixed",
-            top: rect.top - 4,
-            left: rect.left - 4,
-            width: rect.width + 8,
-            height: rect.height + 8,
-            borderRadius: 14,
-            border: `2px solid ${COLORS.accent}`,
-            boxShadow: "0 0 0 9999px rgba(0,0,0,0.42)",
-            pointerEvents: "none",
-            transition: "top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease",
-          }}
-        />
-      ) : (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.22)", pointerEvents: "none" }} />
-      )}
-
-      {rect && (
-        <div style={{ color: COLORS.accent, marginBottom: 6, pointerEvents: "none", animation: "ironlogTourBounce 1.2s ease-in-out infinite" }}>
-          <ChevronUp size={22} />
-        </div>
-      )}
-
+      {/* Nothing is drawn over the screen. The old spotlight dimmed the app
+          with a 9999px box-shadow, and because it was position:fixed while
+          the panel below is not, that shadow painted on top of the panel —
+          which is why the text read as greyed on exactly the steps that had
+          a target. No overlay, no ring, no dimming: the real screen, and the
+          text explaining it. This transparent layer only stops taps reaching
+          the app mid-tour, which would desync the step-driven navigation. */}
       <div
         style={{
           width: "100%",
@@ -10526,11 +10598,12 @@ function FeatureTour({ stepIndex, onNext, onPrev, onSkip }) {
           // width, pushing the card wider than the screen and cutting the
           // Skip link and the Next button off the right edge.
           boxSizing: "border-box",
+          // Fully opaque and flush to the bottom edge. Nothing translucent
+          // anywhere in the tour any more, so the copy is always at full
+          // contrast whatever is behind it.
           background: COLORS.bg,
           borderTop: `1px solid ${COLORS.line}`,
-          borderRadius: "20px 20px 0 0",
-          padding: "20px 22px calc(24px + env(safe-area-inset-bottom, 0px))",
-          boxShadow: "0 -12px 40px rgba(0,0,0,0.5)",
+          padding: "18px 22px calc(22px + env(safe-area-inset-bottom, 0px))",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
@@ -11016,6 +11089,7 @@ export default function App() {
       setDbReady(true);
     }
     init();
+    registerServiceWorker();
 
     // Make sure the viewport honors device safe areas (notch / status bar /
     // Dynamic Island) so fixed top content like TopBar doesn't render

@@ -3,3 +3,4 @@ dist/
 dist-single/
 android/
 capacitor.config.json
+_site/

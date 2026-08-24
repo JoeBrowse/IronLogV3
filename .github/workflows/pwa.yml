@@ -1,0 +1,99 @@
+# Builds Iron Log and publishes it to GitHub Pages: the product page at the
+# root, and an installable copy of the app at a private path.
+#
+# WHY THE APP LIVES HERE AND NOT IN THE PRIVATE REPO
+# Pages on a private repository needs a paid GitHub plan, and a Pages site is
+# publicly readable regardless of the repository's visibility — so hosting it
+# from the private repo would have bought nothing. This repo is public, Pages
+# is free here, and the protection is the same either way: the path.
+#
+# WHY THE PATH IS A SECRET AND NOT WRITTEN HERE
+# The app is built with VITE_UNLOCKED=1, which removes the paywall entirely.
+# That is deliberate — this is the copy handed to people who cannot install
+# the Android build, mainly iPhones — but it means anyone with the URL has the
+# paid app for free. This workflow file is public, so hardcoding the path here
+# would publish it to anyone who opens the repo. It comes from the PWA_PATH
+# repository secret instead, and nothing in the built site links to it.
+#
+# Rotating PWA_PATH immediately orphans every copy already installed on
+# someone's home screen; they would need the new link to reinstall.
+#
+# SETUP (once):
+#   Settings -> Pages -> Source: "GitHub Actions"
+#   Settings -> Secrets and variables -> Actions -> new secret PWA_PATH
+name: Publish site and PWA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. Superseded queued runs are pointless, but do not
+# cancel one mid-flight or Pages can be left with a half-uploaded artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Lint
+        run: npm run lint
+      # The billing plugin is never imported outside a Capacitor runtime, so
+      # there is nothing in a web build that could try to reach Google Play.
+      - name: Build unlocked web bundle
+        env:
+          VITE_UNLOCKED: "1"
+        run: npm run build
+      - name: Assemble the site
+        env:
+          PWA_PATH: ${{ secrets.PWA_PATH }}
+        run: |
+          if [ -z "$PWA_PATH" ]; then
+            echo "::error::PWA_PATH repository secret is not set. Add it under Settings -> Secrets and variables -> Actions. It is the private URL path the app is served from."
+            exit 1
+          fi
+          # The product page keeps the root; the app goes somewhere only the
+          # people you sent the link to know about.
+          mkdir -p _site
+          cp -r docs/. _site/
+          mkdir -p "_site/$PWA_PATH"
+          cp -r dist/. "_site/$PWA_PATH/"
+          # An absolute asset base would 404 everything from a subdirectory,
+          # and that failure would otherwise only surface in someone's
+          # browser. vite base is './' — check it stayed that way.
+          if grep -q 'src="/assets/' "_site/$PWA_PATH/index.html"; then
+            echo "::error::index.html has absolute asset paths — vite base must be './' for a subdirectory deploy."
+            exit 1
+          fi
+          # Deliberately not echoing the path.
+          echo "Product page + app assembled."
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
