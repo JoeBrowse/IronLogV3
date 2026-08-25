@@ -736,6 +736,29 @@ const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
   {
+    version: "1.18.0",
+    date: "August 2026",
+    headline: "Light mode, and everything about how the app looks in one place.",
+    items: [
+      {
+        title: "Light mode",
+        body: "Settings \u2192 Colour & Display. Dark, light, or follow whatever your phone is set to. It is not the dark theme inverted \u2014 every colour has a second value chosen for a pale background, because the ones that work on black mostly vanish on white.",
+      },
+      {
+        title: "One screen for all of it",
+        body: "Theme, colour scheme and contrast now live together on their own page instead of being scattered through Settings. They affect each other, so they belong side by side.",
+      },
+      {
+        title: "The colour schemes work in both themes",
+        body: "Each of the four has its own light palette rather than a lightened copy. Monochrome turns over rather than inverting: ready is the most prominent either way \u2014 brightest on dark, darkest on light.",
+      },
+      {
+        title: "Outlines you can actually see",
+        body: "The readiness outlines are drawn in whichever of black or white stands out against the muscle underneath, so they stay visible on a light theme where the fills are dark. An outline that blends in is no use as the backup for colour.",
+      },
+    ],
+  },
+  {
     version: "1.17.0",
     date: "August 2026",
     headline: "The readiness map, for people who cannot see red and green.",
@@ -2898,6 +2921,7 @@ const DEFAULT_SETTINGS = {
   includeMobility: false,
   randomizeSelection: false,
   weightUnit: "kg",
+  theme: "system",
   colourScheme: "default",
   highContrast: false,
 };
@@ -4835,55 +4859,92 @@ const COLOUR_SCHEMES = {
   default: {
     label: "Standard",
     desc: "Red, amber and green. The original palette.",
-    accent: "#FF6A1A",
-    accentDim: "#7A3A16",
-    onAccent: "#1A1200",
-    ok: "#7FD858",
-    bad: "#F26A6A",
-    stages: { red: "#F26A6A", amber: "#E5B93E", green: "#5FB86B" },
-    series: ["#4CC2FF", "#B48CFF", "#7FD858", "#FF7AB6", "#FFC15E", "#5AD6C0"],
-    rir: "#7B8CFF",
     shapes: false,
+    dark: {
+      accent: "#FF6A1A", accentDim: "#7A3A16", onAccent: "#1A1200",
+      ok: "#7FD858", bad: "#F26A6A",
+      stages: { red: "#F26A6A", amber: "#E5B93E", green: "#5FB86B" },
+      series: ["#4CC2FF", "#B48CFF", "#7FD858", "#FF7AB6", "#FFC15E", "#5AD6C0"],
+      rir: "#7B8CFF",
+    },
+    light: {
+      accent: "#C2410C", accentDim: "#F0C9B4", onAccent: "#FFFFFF",
+      ok: "#2E7D32", bad: "#C62F2F",
+      stages: { red: "#C62F2F", amber: "#8A6400", green: "#2E7D32" },
+      neutral: "#BFC3C7",
+      series: ["#0B72B5", "#7B3FBF", "#2E7D32", "#C2185B", "#B26A00", "#00796B"],
+      rir: "#3F51B5",
+    },
   },
   redGreen: {
     label: "Red–green",
     desc: "For deuteranopia and protanopia, the common kinds. Readiness moves onto a blue-to-orange scale, which stays readable when red and green do not.",
-    accent: "#E69F00",
-    accentDim: "#6B4A00",
-    onAccent: "#1A1200",
-    ok: "#56B4E9",
-    bad: "#D55E00",
-    stages: { red: "#D55E00", amber: "#F0E442", green: "#56B4E9" },
-    series: ["#56B4E9", "#009E73", "#F0E442", "#E69F00", "#CC79A7", "#0072B2"],
-    rir: "#0072B2",
     shapes: true,
+    dark: {
+      accent: "#E69F00", accentDim: "#6B4A00", onAccent: "#1A1200",
+      ok: "#56B4E9", bad: "#D55E00",
+      stages: { red: "#D55E00", amber: "#F0E442", green: "#56B4E9" },
+      series: ["#56B4E9", "#009E73", "#F0E442", "#E69F00", "#CC79A7", "#0072B2"],
+      rir: "#0072B2",
+    },
+    // Not the dark palette darkened. Bright yellow is invisible on white, and
+    // simply darkening both warm colours collapsed them into each other: the
+    // first attempt separated recovering from almost-ready by 4 under
+    // deuteranopia, which is no separation at all. The luminance gap the dark
+    // scheme gets from a bright yellow has to be rebuilt downwards instead,
+    // so recovering goes very dark and almost-ready sits well above it.
+    light: {
+      accent: "#A15C00", accentDim: "#E8D2AF", onAccent: "#FFFFFF",
+      ok: "#00588C", bad: "#5A1E00",
+      stages: { red: "#5A1E00", amber: "#CE6E00", green: "#00588C" },
+      neutral: "#BFC3C7",
+      series: ["#00588C", "#00695C", "#8A6D00", "#A15C00", "#8E3A6B", "#3B2C8C"],
+      rir: "#004C8C",
+    },
   },
   blueYellow: {
     label: "Blue–yellow",
     desc: "For tritanopia. Blue and yellow are the pair that go, so readiness uses red, pink and green instead.",
-    accent: "#E24A8C",
-    accentDim: "#6B2142",
-    onAccent: "#1A0410",
-    ok: "#3FAF6B",
-    bad: "#E24A4A",
-    stages: { red: "#E24A4A", amber: "#E58FC2", green: "#3FAF6B" },
-    series: ["#E24A4A", "#3FAF6B", "#E58FC2", "#8C6D3F", "#C2C2C2", "#7A3FAF"],
-    rir: "#B06BD6",
     shapes: true,
+    dark: {
+      accent: "#E24A8C", accentDim: "#6B2142", onAccent: "#1A0410",
+      ok: "#3FAF6B", bad: "#E24A4A",
+      stages: { red: "#E24A4A", amber: "#E58FC2", green: "#3FAF6B" },
+      series: ["#E24A4A", "#3FAF6B", "#E58FC2", "#8C6D3F", "#C2C2C2", "#7A3FAF"],
+      rir: "#B06BD6",
+    },
+    light: {
+      accent: "#A8246B", accentDim: "#F0C2DA", onAccent: "#FFFFFF",
+      ok: "#256B2C", bad: "#C62828",
+      stages: { red: "#C62828", amber: "#A83A78", green: "#256B2C" },
+      neutral: "#BFC3C7",
+      series: ["#C62828", "#256B2C", "#A83A78", "#6D4C1B", "#5A5A5A", "#5B2E8C"],
+      rir: "#6D2E8C",
+    },
   },
   mono: {
     label: "Monochrome",
     desc: "No colour at all. Readiness is told by brightness and by outline, for total colour blindness or any screen where hue cannot be trusted.",
-    accent: "#E8E4DC",
-    accentDim: "#5A5852",
-    onAccent: "#15171A",
-    ok: "#F2EFE9",
-    bad: "#5C6166",
-    stages: { red: "#6E7378", amber: "#B0B5B9", green: "#F2EFE9" },
-    neutral: "#33383D",
-    series: ["#F2EFE9", "#B9BDC0", "#8A8F93", "#63686C", "#D6D2CB", "#A0A5A9"],
-    rir: "#B9BDC0",
     shapes: true,
+    dark: {
+      accent: "#E8E4DC", accentDim: "#5A5852", onAccent: "#15171A",
+      ok: "#F2EFE9", bad: "#5C6166",
+      stages: { red: "#6E7378", amber: "#B0B5B9", green: "#F2EFE9" },
+      neutral: "#33383D",
+      series: ["#F2EFE9", "#B9BDC0", "#8A8F93", "#63686C", "#D6D2CB", "#A0A5A9"],
+      rir: "#B9BDC0",
+    },
+    // The ramp turns over rather than inverting: ready is the most prominent
+    // in both themes, which on a dark ground means the brightest and on a
+    // light one means the darkest.
+    light: {
+      accent: "#33383D", accentDim: "#D2D6D9", onAccent: "#FFFFFF",
+      ok: "#191C1F", bad: "#7E8387",
+      stages: { red: "#7E8387", amber: "#4C5054", green: "#191C1F" },
+      neutral: "#CBCFD2",
+      series: ["#191C1F", "#3A3E42", "#5C6166", "#7E8387", "#2A2E32", "#6A6F73"],
+      rir: "#3A3E42",
+    },
   },
 };
 
@@ -4892,29 +4953,44 @@ const COLOUR_SCHEME_ORDER = ["default", "redGreen", "blueYellow", "mono"];
 // The neutral chrome. High contrast replaces these wholesale rather than
 // nudging them: the point is a screen that survives direct sunlight through
 // a gym window, not a slightly darker grey.
-const BASE_CHROME = {
-  bg: "#15171A",
-  surface: "#1D2023",
-  surfaceRaised: "#24282C",
-  line: "#33383D",
-  text: "#F2EFE9",
-  textDim: "#9A9D9F",
+const CHROME = {
+  dark: {
+    normal: { bg: "#15171A", surface: "#1D2023", surfaceRaised: "#24282C", line: "#33383D", text: "#F2EFE9", textDim: "#9A9D9F" },
+    high:   { bg: "#000000", surface: "#0B0D0F", surfaceRaised: "#16191C", line: "#7E868C", text: "#FFFFFF", textDim: "#D2D6D9" },
+  },
+  // Light is not the dark palette inverted. Surfaces have to separate without
+  // a dark ground to sit on, so the card is the lightest thing on the screen
+  // and the page behind it is slightly darker — the opposite of dark mode,
+  // where the card is lifted by being lighter than the page.
+  light: {
+    normal: { bg: "#F1EEE9", surface: "#FFFFFF", surfaceRaised: "#E7E3DC", line: "#D3CEC5", text: "#1A1C1F", textDim: "#5C6166" },
+    high:   { bg: "#FFFFFF", surface: "#FFFFFF", surfaceRaised: "#EFECE6", line: "#2A2E32", text: "#000000", textDim: "#2A2E32" },
+  },
 };
 
-const HIGH_CONTRAST_CHROME = {
-  bg: "#000000",
-  surface: "#0B0D0F",
-  surfaceRaised: "#16191C",
-  line: "#7E868C",
-  text: "#FFFFFF",
-  textDim: "#D2D6D9",
-};
+const THEME_MODES = [
+  { value: "system", label: "System", desc: "Follow whatever your phone is set to." },
+  { value: "dark", label: "Dark", desc: "The original. Easier on the eyes in a dim gym." },
+  { value: "light", label: "Light", desc: "For bright rooms and daylight." },
+];
 
-// Read at render time by every screen, so switching scheme is a matter of
-// rewriting this object and re-rendering rather than threading a theme
-// through 700 call sites.
+// "system" is resolved once here rather than being carried around as a third
+// state, so everything downstream only ever deals with dark or light.
+function resolveTheme(mode) {
+  if (mode === "dark" || mode === "light") return mode;
+  if (typeof window !== "undefined" && window.matchMedia) {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  return "dark";
+}
+
+const NEUTRAL_DARK = "#5A626A";
+
+// Read at render time by every screen, so switching theme or scheme is a
+// matter of rewriting these objects and re-rendering rather than threading a
+// theme through 700 call sites.
 const COLORS = {
-  ...BASE_CHROME,
+  ...CHROME.dark.normal,
   accent: "#FF6A1A",
   accentDim: "#7A3A16",
   onAccent: "#1A1200",
@@ -4927,49 +5003,80 @@ const COLORS = {
 // crosses into ready impossible to see.
 const STAGE_COLORS = { red: "#F26A6A", amber: "#E5B93E", green: "#5FB86B" };
 
-// Outline per readiness state — the channel that does not depend on being
-// able to see colour. Off in the standard scheme, on in every other.
 const STAGE_SHAPES = {
   red: { width: 0.55, dash: null },
   amber: { width: 0.55, dash: "1.2 0.9" },
   green: { width: 0, dash: null },
 };
 
-const SUPERSET_COLORS = [...COLOUR_SCHEMES.default.series];
+// The outline has to stand out from the muscle it is drawn on, not from the
+// page. Drawing it in the text colour works on a dark theme, where the fills
+// are bright — on a light one the fills are dark and a near-black outline
+// disappears into them, which is exactly the channel that was supposed to be
+// the reliable one. So pick whichever of the two extremes contrasts more with
+// the fill itself.
+function relativeLuminance(hex) {
+  const channel = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const [r, g, b] = hexToRgb(hex);
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
 
-const THEME = { scheme: "default", highContrast: false, shapes: false };
+function contrastRatio(a, b) {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function outlineColorFor(fill) {
+  return contrastRatio(COLORS.text, fill) >= contrastRatio(COLORS.bg, fill) ? COLORS.text : COLORS.bg;
+}
+
+const SUPERSET_COLORS = [...COLOUR_SCHEMES.default.dark.series];
+
+const THEME = { mode: "system", theme: "dark", scheme: "default", highContrast: false, shapes: false, rir: null };
 
 // Rewrites the live palette in place. Everything that paints reads these
 // objects during render, so the whole app recolours on the next paint.
-function applyColourScheme(schemeKey, highContrast) {
+function applyTheme(themeMode, schemeKey, highContrast) {
+  const theme = resolveTheme(themeMode);
   const scheme = COLOUR_SCHEMES[schemeKey] || COLOUR_SCHEMES.default;
-  Object.assign(COLORS, highContrast ? HIGH_CONTRAST_CHROME : BASE_CHROME, {
-    accent: scheme.accent,
-    accentDim: scheme.accentDim,
-    onAccent: scheme.onAccent,
-    ok: scheme.ok,
-    bad: scheme.bad,
+  const pal = scheme[theme] || scheme.dark;
+  const chrome = CHROME[theme][highContrast ? "high" : "normal"];
+
+  Object.assign(COLORS, chrome, {
+    accent: pal.accent,
+    accentDim: pal.accentDim,
+    onAccent: pal.onAccent,
+    ok: pal.ok,
+    bad: pal.bad,
   });
-  Object.assign(STAGE_COLORS, scheme.stages);
-  NEUTRAL_BOX.value = scheme.neutral || NEUTRAL_DEFAULT;
+  Object.assign(STAGE_COLORS, pal.stages);
+  NEUTRAL_BOX.value = pal.neutral || NEUTRAL_DARK;
   SUPERSET_COLORS.length = 0;
-  SUPERSET_COLORS.push(...scheme.series);
+  SUPERSET_COLORS.push(...pal.series);
+
+  THEME.mode = themeMode || "system";
+  THEME.theme = theme;
   THEME.scheme = COLOUR_SCHEMES[schemeKey] ? schemeKey : "default";
   THEME.highContrast = !!highContrast;
   // High contrast turns the outlines on whatever the scheme, since someone
   // who has asked for maximum legibility wants every channel it can give.
   THEME.shapes = !!scheme.shapes || !!highContrast;
-  THEME.rir = scheme.rir;
+  THEME.rir = pal.rir;
 
   // The page background and the Android status-bar colour are set in
   // index.html, outside React, so they have to be told separately — without
-  // this, high contrast leaves a dark-grey band above and below a black app.
+  // this, a light theme leaves a dark band above and below a white app.
   if (typeof document !== "undefined") {
     document.body.style.background = COLORS.bg;
+    document.documentElement.style.colorScheme = theme;
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", COLORS.bg);
   }
 }
+
 const STAGE_LABELS = { red: "recovering", amber: "almost ready", green: "ready" };
 // The legend states the rule outright rather than repeating the words above:
 // amber is always "less than a day to go", never a vaguer sense of nearly.
@@ -5393,8 +5500,7 @@ function RestTimer({ timer, onTogglePause, onAddTime, onSkip }) {
 // what gives the body its silhouette. Schemes can override it: the monochrome
 // ramp is itself grey, so the default silhouette would sit in the middle of
 // it and an untrained shin would read as a recovering one.
-const NEUTRAL_DEFAULT = "#5A626A";
-const NEUTRAL_BOX = { value: NEUTRAL_DEFAULT };
+const NEUTRAL_BOX = { value: NEUTRAL_DARK };
 
 /* The figure comes from `body-muscles` (Apache 2.0, (c) 2024 Ivan Vulovic,
    https://github.com/vulovix/body-muscles) — a front and rear human split
@@ -5461,7 +5567,13 @@ function BodySide({ label, view, stages, selected, onSelect }) {
               data-muscle={p.muscle || undefined}
               data-stage={stage || undefined}
               fill={isMuscle ? STAGE_COLORS[stage] : NEUTRAL_BOX.value}
-              stroke={isSelected ? COLORS.text : shape && shape.width ? COLORS.text : COLORS.bg}
+              stroke={
+                isSelected
+                  ? outlineColorFor(STAGE_COLORS[stage])
+                  : shape && shape.width
+                    ? outlineColorFor(STAGE_COLORS[stage])
+                    : COLORS.bg
+              }
               strokeWidth={isSelected ? 0.4 : shape ? shape.width : 0.12}
               strokeDasharray={!isSelected && shape && shape.dash ? shape.dash : undefined}
               strokeLinejoin="round"
@@ -7362,7 +7474,7 @@ function setToneStyle(tone) {
 // a different kind of thing. Tapping pops the four choices out beside it
 // instead of opening a dialog — this gets used between sets, one-handed.
 function rirColor() {
-  return THEME.rir || COLOUR_SCHEMES.default.rir;
+  return THEME.rir || COLOUR_SCHEMES.default.dark.rir;
 }
 
 function RirTile({ value, onPick, open, onToggle }) {
@@ -10857,7 +10969,7 @@ function StagePreview() {
                 borderRadius: "50%",
                 margin: "0 auto 7px",
                 background: STAGE_COLORS[stage],
-                border: shape && shape.width ? `2px ${shape.dash ? "dashed" : "solid"} ${COLORS.text}` : "2px solid transparent",
+                border: shape && shape.width ? `2px ${shape.dash ? "dashed" : "solid"} ${outlineColorFor(STAGE_COLORS[stage])}` : "2px solid transparent",
               }}
             />
             <div style={{ color: COLORS.text, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -10871,7 +10983,112 @@ function StagePreview() {
   );
 }
 
-function SettingsScreen({ settings, onChange, onBack, onReplayTour, onViewFeatureList, onViewWhatsNew, license, onBuy, onRestore, purchaseBusy, purchaseMsg }) {
+/* ---------------------------------------------------------------
+   COLOUR & DISPLAY
+
+   Everything about how the app looks, on one screen: light or dark, the
+   colour scheme, and high contrast. They belong together because they
+   interact — a scheme's palette is different in each theme, and high
+   contrast changes both — and because someone who needs one of them
+   usually needs to try the others too.
+--------------------------------------------------------------- */
+
+function ColourScreen({ settings, onChange, onBack }) {
+  const scheme = settings.colourScheme || "default";
+  const mode = settings.theme || "system";
+  const set = (patch) => onChange({ ...settings, ...patch });
+
+  const sectionLabel = {
+    color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif",
+    letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8,
+  };
+  const note = { color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 };
+
+  return (
+    <div style={{ paddingBottom: 40 }}>
+      <TopBar title="Colour & Display" onBack={onBack} />
+
+      <div style={{ padding: "0 20px 22px" }}>
+        <div style={sectionLabel}>Theme</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          {THEME_MODES.map((m) => {
+            const active = mode === m.value;
+            return (
+              <button
+                key={m.value}
+                onClick={() => set({ theme: m.value })}
+                style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surface, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 13.5, textTransform: "uppercase", letterSpacing: 0.5 }}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>
+          {(THEME_MODES.find((m) => m.value === mode) || THEME_MODES[0]).desc}
+        </div>
+      </div>
+
+      <div style={{ padding: "0 20px 22px" }}>
+        <div style={sectionLabel}>Colour Scheme</div>
+        <div style={note}>
+          The readiness map tells you what is recovered using colour, and red, amber and green is the worst possible set for the commonest kind of colour blindness. Pick the one that matches how you see. Every colour in the app that means something changes with it, and the muscles gain outlines so you are never relying on colour alone.
+        </div>
+
+        <StagePreview />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          {COLOUR_SCHEME_ORDER.map((key) => {
+            const sch = COLOUR_SCHEMES[key];
+            const pal = sch[THEME.theme] || sch.dark;
+            const active = scheme === key;
+            return (
+              <button
+                key={key}
+                onClick={() => set({ colourScheme: key })}
+                style={{ textAlign: "left", padding: "12px 14px", borderRadius: 12, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? hexToRgba(COLORS.accent, 0.12) : COLORS.surface }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
+                  <span style={{ color: active ? COLORS.accent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    {sch.label}
+                  </span>
+                  <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {["red", "amber", "green"].map((st) => (
+                      <span key={st} style={{ width: 16, height: 16, borderRadius: 4, background: pal.stages[st], border: sch.shapes && st !== "green" ? `1.5px ${st === "amber" ? "dashed" : "solid"} ${outlineColorFor(pal.stages[st])}` : "none" }} />
+                    ))}
+                  </span>
+                </div>
+                <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>{sch.desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ padding: "0 20px 16px" }}>
+        <div style={sectionLabel}>Contrast</div>
+        <button
+          onClick={() => set({ highContrast: !settings.highContrast })}
+          style={{ width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: 12, border: `1px solid ${settings.highContrast ? COLORS.accent : COLORS.line}`, background: settings.highContrast ? hexToRgba(COLORS.accent, 0.12) : COLORS.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", color: settings.highContrast ? COLORS.accent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+              High Contrast
+            </span>
+            <span style={{ display: "block", color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>
+              Pure black or pure white behind everything, stronger text, heavier lines. For bad lighting, low vision, or a phone held at arm&rsquo;s length in a bright gym. Turns the readiness outlines on whatever scheme you are using.
+            </span>
+          </span>
+          <span style={{ width: 42, height: 24, borderRadius: 12, background: settings.highContrast ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${settings.highContrast ? COLORS.accent : COLORS.line}`, flexShrink: 0, position: "relative" }}>
+            <span style={{ position: "absolute", top: 2, left: settings.highContrast ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: settings.highContrast ? COLORS.onAccent : COLORS.textDim }} />
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SettingsScreen({ settings, onChange, onBack, onViewColour, onReplayTour, onViewFeatureList, onViewWhatsNew, license, onBuy, onRestore, purchaseBusy, purchaseMsg }) {
   function toggle(key) {
     onChange({ ...settings, [key]: !settings[key] });
   }
@@ -10926,75 +11143,20 @@ function SettingsScreen({ settings, onChange, onBack, onReplayTour, onViewFeatur
         </div>
       </div>
 
-      <div style={{ padding: "0 20px 20px" }}>
-        <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
-          Colour &amp; Contrast
-        </div>
-        <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
-          The readiness map tells you what is recovered using colour. If red and green look alike to you, pick the scheme that matches — every colour in the app that means something changes with it, and the muscles gain outlines so you are never relying on colour alone.
-        </div>
-
-        <StagePreview />
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-          {COLOUR_SCHEME_ORDER.map((key) => {
-            const sch = COLOUR_SCHEMES[key];
-            const active = (settings.colourScheme || "default") === key;
-            return (
-              <button
-                key={key}
-                onClick={() => onChange({ ...settings, colourScheme: key })}
-                style={{
-                  textAlign: "left",
-                  padding: "12px 14px",
-                  borderRadius: 12,
-                  border: `1px solid ${active ? COLORS.accent : COLORS.line}`,
-                  background: active ? hexToRgba(COLORS.accent, 0.12) : COLORS.surface,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
-                  <span style={{ color: active ? COLORS.accent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    {sch.label}
-                  </span>
-                  <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    {["red", "amber", "green"].map((st) => (
-                      <span key={st} style={{ width: 16, height: 16, borderRadius: 4, background: sch.stages[st], border: sch.shapes && st !== "green" ? `1.5px ${st === "amber" ? "dashed" : "solid"} ${COLORS.text}` : "none" }} />
-                    ))}
-                  </span>
-                </div>
-                <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>{sch.desc}</div>
-              </button>
-            );
-          })}
-        </div>
-
+      <div style={{ padding: "0 20px 16px" }}>
         <button
-          onClick={() => onChange({ ...settings, highContrast: !settings.highContrast })}
-          style={{
-            width: "100%",
-            marginTop: 10,
-            textAlign: "left",
-            padding: "12px 14px",
-            borderRadius: 12,
-            border: `1px solid ${settings.highContrast ? COLORS.accent : COLORS.line}`,
-            background: settings.highContrast ? hexToRgba(COLORS.accent, 0.12) : COLORS.surface,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
+          onClick={onViewColour}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: "13px 14px", textAlign: "left" }}
         >
           <span style={{ minWidth: 0 }}>
-            <span style={{ display: "block", color: settings.highContrast ? COLORS.accent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
-              High Contrast
+            <span style={{ display: "block", color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
+              Colour &amp; Display
             </span>
-            <span style={{ display: "block", color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>
-              Pure black behind everything, brighter text, heavier lines. For bad lighting, low vision, or a phone held at arm&rsquo;s length in a bright gym. Turns the readiness outlines on whatever scheme you are using.
+            <span style={{ display: "block", color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.4 }}>
+              Light or dark, colour schemes for colour blindness, and high contrast.
             </span>
           </span>
-          <span style={{ width: 42, height: 24, borderRadius: 12, background: settings.highContrast ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${settings.highContrast ? COLORS.accent : COLORS.line}`, flexShrink: 0, position: "relative" }}>
-            <span style={{ position: "absolute", top: 2, left: settings.highContrast ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: settings.highContrast ? COLORS.onAccent : COLORS.textDim }} />
-          </span>
+          <ChevronRight size={16} color={COLORS.accent} style={{ flexShrink: 0 }} />
         </button>
       </div>
 
@@ -11220,8 +11382,11 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           <FeatureItem name="Change the Implement (Advanced Mode)">
             Mid-workout, open an exercise's menu (gear icon) to change how you're loading it. The exercise stays the same, so your history and any superset stay attached — only the comparison narrows to sessions done the same way.
           </FeatureItem>
+          <FeatureItem name="Light mode">
+            Settings → Colour &amp; Display. Dark, light, or follow your phone. Light is not the dark theme inverted — every colour that means something has a second value picked for a pale background, since most of what works on black disappears on white.
+          </FeatureItem>
           <FeatureItem name="Colour schemes for colour blindness">
-            Settings → Colour &amp; Contrast. The readiness map uses colour to say what is recovered, and red/amber/green is the worst triple for the commonest kind of colour blindness. Pick the scheme that matches how you see: red–green, blue–yellow, or monochrome, which uses brightness alone. Everything in the app that carries meaning through colour changes with it, and in any scheme but the original the muscles gain outlines so colour is never the only clue. High Contrast is a separate switch — pure black, brighter text, heavier lines.
+            Settings → Colour &amp; Display. The readiness map uses colour to say what is recovered, and red/amber/green is the worst triple for the commonest kind of colour blindness. Pick the scheme that matches how you see: red–green, blue–yellow, or monochrome, which uses brightness alone. Each has its own palette for light and for dark. Everything in the app that carries meaning through colour changes with it, and in any scheme but the original the muscles gain outlines so colour is never the only clue. High Contrast is a separate switch — pure black, brighter text, heavier lines.
           </FeatureItem>
           <FeatureItem name="Exercise Database">
             From the Home screen: browse every exercise by body part. Reorder anything — the order is the priority the app uses when it picks exercises for you, so moving cable pushdowns to the top means you get them first. Remove exercises you can't or won't do (they vanish from every picker, and you can restore them any time), and add your own.
@@ -12458,7 +12623,7 @@ export default function App() {
         const merged = { ...DEFAULT_SETTINGS, ...savedSettings, weightUnit: "kg" };
         // Before setSettings, so the first paint is already in the right
         // palette rather than flashing the standard one and correcting.
-        applyColourScheme(merged.colourScheme, merged.highContrast);
+        applyTheme(merged.theme, merged.colourScheme, merged.highContrast);
         setSettings(merged);
       }
       const active = await getActiveProgramme();
@@ -12564,7 +12729,7 @@ export default function App() {
     // The palette lives in a module object every screen reads while it
     // paints, so it has to be rewritten before React re-renders rather than
     // passed down as state.
-    applyColourScheme(next.colourScheme, next.highContrast);
+    applyTheme(next.theme, next.colourScheme, next.highContrast);
     setSettings(next);
     await safeSet("settings", next);
   }
@@ -12828,6 +12993,7 @@ export default function App() {
           settings={settings}
           onChange={updateSettings}
           onBack={() => setScreen("home")}
+          onViewColour={() => setScreen("colour")}
           onReplayTour={replayTour}
           onViewFeatureList={() => setScreen("featureList")}
           onViewWhatsNew={() => setWhatsNew(releaseNotesFor(APP_VERSION))}
@@ -12836,6 +13002,14 @@ export default function App() {
           onRestore={handleRestore}
           purchaseBusy={purchaseBusy}
           purchaseMsg={purchaseMsg}
+        />
+      )}
+
+      {screen === "colour" && (
+        <ColourScreen
+          settings={settings}
+          onChange={updateSettings}
+          onBack={() => setScreen("settings")}
         />
       )}
 
