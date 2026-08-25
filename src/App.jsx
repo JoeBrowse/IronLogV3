@@ -491,7 +491,7 @@ function isMachineExercise(ex, method) {
 
 // Distinct outline colors for supersets (kept clear of the orange accent so a
 // linked group never reads as a primary action).
-const SUPERSET_COLORS = ["#4CC2FF", "#B48CFF", "#7FD858", "#FF7AB6", "#FFC15E", "#5AD6C0"];
+
 
 /* ---------------------------------------------------------------
    DATE / TIME HELPERS FOR BACK-DATED WORKOUTS
@@ -632,7 +632,7 @@ function BackdatePicker({ value, onChange, onDone }) {
         </select>
       </div>
 
-      <button onClick={onDone} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: "#1A1200", fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
+      <button onClick={onDone} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: COLORS.onAccent, fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
         Done
       </button>
     </div>
@@ -735,6 +735,33 @@ const APP_VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0
 const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
+  {
+    version: "1.17.0",
+    date: "August 2026",
+    headline: "The readiness map, for people who cannot see red and green.",
+    items: [
+      {
+        title: "Colour schemes in Settings",
+        body: "The map told you what was recovered using red, amber and green \u2014 which is the worst possible choice for the commonest kind of colour blindness. Roughly one man in twelve could not reliably tell recovering from ready. Settings now has a Colour & Contrast section with four schemes: the original, one for red\u2013green deficiency, one for blue\u2013yellow, and a monochrome one that uses brightness alone.",
+      },
+      {
+        title: "Every colour that means something changes",
+        body: "Not just the body map. The set outlines that mark a better or worse set than last time, the accent, the superset colours and the effort dial all move with the scheme.",
+      },
+      {
+        title: "Outlines, so colour is never the only clue",
+        body: "In any scheme but the original, recovering muscles get a solid outline and almost-ready ones a dashed outline. A palette can be beaten by a bad screen or a form of colour blindness no preset anticipated. An outline cannot.",
+      },
+      {
+        title: "High contrast",
+        body: "A separate switch: pure black behind everything, brighter text, heavier lines, and the outlines turned on whichever scheme you are using. For low vision, or a phone at arm's length in a bright gym.",
+      },
+      {
+        title: "See it before you choose it",
+        body: "The three states are shown as they will actually look, on the page where you pick the scheme.",
+      },
+    ],
+  },
   {
     version: "1.16.0",
     date: "August 2026",
@@ -2871,6 +2898,8 @@ const DEFAULT_SETTINGS = {
   includeMobility: false,
   randomizeSelection: false,
   weightUnit: "kg",
+  colourScheme: "default",
+  highContrast: false,
 };
 
 // Simple mode keeps a first-time lifter to the essentials: muscle-tap
@@ -4767,15 +4796,128 @@ function warmupSets(topWeight) {
    UI PRIMITIVES
 --------------------------------------------------------------- */
 
-const COLORS = {
+/* ---------------------------------------------------------------
+   COLOUR SCHEMES
+
+   The readiness map is the app's central screen and it was red, amber and
+   green — which is the single worst triple for the most common form of
+   colour blindness. Roughly one man in twelve cannot reliably tell this
+   app's "recovering" from its "ready". That is not a rounding error on a
+   feature; it is the feature.
+
+   So the palette is switchable. Each scheme restates every colour that
+   carries meaning: the three readiness states, the good/bad pair on set
+   outlines, the accent, and the series colours supersets and charts draw
+   from. Nothing else about the app changes.
+
+   ON THE CHOICE OF SCHEMES
+
+   Deuteranopia and protanopia are both red-green deficiencies and the
+   research palettes treat them together, so they share one scheme here.
+   Offering two that differed only cosmetically would look more thorough and
+   be worth less. Tritanopia is a different axis and gets its own. Total
+   colour blindness gets a luminance ramp, because for those users hue is
+   not a channel at all.
+
+   The red-green and blue-yellow palettes are derived from Okabe & Ito's
+   colour-universal set, which was designed for exactly this and tested
+   rather than guessed at.
+
+   COLOUR IS NEVER THE ONLY CHANNEL
+
+   Every non-default scheme also turns on outline shapes — a solid ring for
+   recovering, a dashed one for almost ready, none for ready. A palette can
+   be defeated by a bad screen, low light or a form of deficiency no preset
+   anticipates. An outline cannot.
+--------------------------------------------------------------- */
+
+const COLOUR_SCHEMES = {
+  default: {
+    label: "Standard",
+    desc: "Red, amber and green. The original palette.",
+    accent: "#FF6A1A",
+    accentDim: "#7A3A16",
+    onAccent: "#1A1200",
+    ok: "#7FD858",
+    bad: "#F26A6A",
+    stages: { red: "#F26A6A", amber: "#E5B93E", green: "#5FB86B" },
+    series: ["#4CC2FF", "#B48CFF", "#7FD858", "#FF7AB6", "#FFC15E", "#5AD6C0"],
+    rir: "#7B8CFF",
+    shapes: false,
+  },
+  redGreen: {
+    label: "Red–green",
+    desc: "For deuteranopia and protanopia, the common kinds. Readiness moves onto a blue-to-orange scale, which stays readable when red and green do not.",
+    accent: "#E69F00",
+    accentDim: "#6B4A00",
+    onAccent: "#1A1200",
+    ok: "#56B4E9",
+    bad: "#D55E00",
+    stages: { red: "#D55E00", amber: "#F0E442", green: "#56B4E9" },
+    series: ["#56B4E9", "#009E73", "#F0E442", "#E69F00", "#CC79A7", "#0072B2"],
+    rir: "#0072B2",
+    shapes: true,
+  },
+  blueYellow: {
+    label: "Blue–yellow",
+    desc: "For tritanopia. Blue and yellow are the pair that go, so readiness uses red, pink and green instead.",
+    accent: "#E24A8C",
+    accentDim: "#6B2142",
+    onAccent: "#1A0410",
+    ok: "#3FAF6B",
+    bad: "#E24A4A",
+    stages: { red: "#E24A4A", amber: "#E58FC2", green: "#3FAF6B" },
+    series: ["#E24A4A", "#3FAF6B", "#E58FC2", "#8C6D3F", "#C2C2C2", "#7A3FAF"],
+    rir: "#B06BD6",
+    shapes: true,
+  },
+  mono: {
+    label: "Monochrome",
+    desc: "No colour at all. Readiness is told by brightness and by outline, for total colour blindness or any screen where hue cannot be trusted.",
+    accent: "#E8E4DC",
+    accentDim: "#5A5852",
+    onAccent: "#15171A",
+    ok: "#F2EFE9",
+    bad: "#5C6166",
+    stages: { red: "#6E7378", amber: "#B0B5B9", green: "#F2EFE9" },
+    neutral: "#33383D",
+    series: ["#F2EFE9", "#B9BDC0", "#8A8F93", "#63686C", "#D6D2CB", "#A0A5A9"],
+    rir: "#B9BDC0",
+    shapes: true,
+  },
+};
+
+const COLOUR_SCHEME_ORDER = ["default", "redGreen", "blueYellow", "mono"];
+
+// The neutral chrome. High contrast replaces these wholesale rather than
+// nudging them: the point is a screen that survives direct sunlight through
+// a gym window, not a slightly darker grey.
+const BASE_CHROME = {
   bg: "#15171A",
   surface: "#1D2023",
   surfaceRaised: "#24282C",
   line: "#33383D",
   text: "#F2EFE9",
   textDim: "#9A9D9F",
+};
+
+const HIGH_CONTRAST_CHROME = {
+  bg: "#000000",
+  surface: "#0B0D0F",
+  surfaceRaised: "#16191C",
+  line: "#7E868C",
+  text: "#FFFFFF",
+  textDim: "#D2D6D9",
+};
+
+// Read at render time by every screen, so switching scheme is a matter of
+// rewriting this object and re-rendering rather than threading a theme
+// through 700 call sites.
+const COLORS = {
+  ...BASE_CHROME,
   accent: "#FF6A1A",
   accentDim: "#7A3A16",
+  onAccent: "#1A1200",
   ok: "#7FD858",
   bad: "#F26A6A",
 };
@@ -4783,7 +4925,51 @@ const COLORS = {
 // Three flat colours rather than a gradient. The question the map answers is
 // "can I train this today?", and a continuous blend makes the moment a muscle
 // crosses into ready impossible to see.
-const STAGE_COLORS = { red: COLORS.bad, amber: "#E5B93E", green: "#5FB86B" };
+const STAGE_COLORS = { red: "#F26A6A", amber: "#E5B93E", green: "#5FB86B" };
+
+// Outline per readiness state — the channel that does not depend on being
+// able to see colour. Off in the standard scheme, on in every other.
+const STAGE_SHAPES = {
+  red: { width: 0.55, dash: null },
+  amber: { width: 0.55, dash: "1.2 0.9" },
+  green: { width: 0, dash: null },
+};
+
+const SUPERSET_COLORS = [...COLOUR_SCHEMES.default.series];
+
+const THEME = { scheme: "default", highContrast: false, shapes: false };
+
+// Rewrites the live palette in place. Everything that paints reads these
+// objects during render, so the whole app recolours on the next paint.
+function applyColourScheme(schemeKey, highContrast) {
+  const scheme = COLOUR_SCHEMES[schemeKey] || COLOUR_SCHEMES.default;
+  Object.assign(COLORS, highContrast ? HIGH_CONTRAST_CHROME : BASE_CHROME, {
+    accent: scheme.accent,
+    accentDim: scheme.accentDim,
+    onAccent: scheme.onAccent,
+    ok: scheme.ok,
+    bad: scheme.bad,
+  });
+  Object.assign(STAGE_COLORS, scheme.stages);
+  NEUTRAL_BOX.value = scheme.neutral || NEUTRAL_DEFAULT;
+  SUPERSET_COLORS.length = 0;
+  SUPERSET_COLORS.push(...scheme.series);
+  THEME.scheme = COLOUR_SCHEMES[schemeKey] ? schemeKey : "default";
+  THEME.highContrast = !!highContrast;
+  // High contrast turns the outlines on whatever the scheme, since someone
+  // who has asked for maximum legibility wants every channel it can give.
+  THEME.shapes = !!scheme.shapes || !!highContrast;
+  THEME.rir = scheme.rir;
+
+  // The page background and the Android status-bar colour are set in
+  // index.html, outside React, so they have to be told separately — without
+  // this, high contrast leaves a dark-grey band above and below a black app.
+  if (typeof document !== "undefined") {
+    document.body.style.background = COLORS.bg;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", COLORS.bg);
+  }
+}
 const STAGE_LABELS = { red: "recovering", amber: "almost ready", green: "ready" };
 // The legend states the rule outright rather than repeating the words above:
 // amber is always "less than a day to go", never a vaguer sense of nearly.
@@ -5073,7 +5259,7 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel, initial }) 
               borderRadius: 8,
               border: `1px solid ${type === t ? COLORS.accent : COLORS.line}`,
               background: type === t ? COLORS.accent : COLORS.surfaceRaised,
-              color: type === t ? "#1A1200" : COLORS.textDim,
+              color: type === t ? COLORS.onAccent : COLORS.textDim,
               fontFamily: "'Oswald', sans-serif",
               fontSize: 12.5,
               textTransform: "uppercase",
@@ -5125,7 +5311,7 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel, initial }) 
         <button
           onClick={handleSave}
           disabled={!name.trim()}
-          style={{ flex: 1, background: name.trim() ? COLORS.accent : COLORS.surfaceRaised, color: name.trim() ? "#1A1200" : COLORS.textDim, border: "none", borderRadius: 8, padding: "10px 0", fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase" }}
+          style={{ flex: 1, background: name.trim() ? COLORS.accent : COLORS.surfaceRaised, color: name.trim() ? COLORS.onAccent : COLORS.textDim, border: "none", borderRadius: 8, padding: "10px 0", fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase" }}
         >
           {editing ? "Save Changes" : "Add Exercise"}
         </button>
@@ -5203,7 +5389,12 @@ function RestTimer({ timer, onTogglePause, onAddTime, onSkip }) {
    scale. Neutral (non-muscle) segments stay grey.
 --------------------------------------------------------------- */
 
-const NEUTRAL = "#5A626A";
+// The parts of the figure we do not train — head, hands, feet, joints. It is
+// what gives the body its silhouette. Schemes can override it: the monochrome
+// ramp is itself grey, so the default silhouette would sit in the middle of
+// it and an untrained shin would read as a recovering one.
+const NEUTRAL_DEFAULT = "#5A626A";
+const NEUTRAL_BOX = { value: NEUTRAL_DEFAULT };
 
 /* The figure comes from `body-muscles` (Apache 2.0, (c) 2024 Ivan Vulovic,
    https://github.com/vulovix/body-muscles) — a front and rear human split
@@ -5257,14 +5448,22 @@ function BodySide({ label, view, stages, selected, onSelect }) {
         {BODY_FIGURE[view].map((p) => {
           const isMuscle = !!p.muscle;
           const isSelected = isMuscle && selected === p.muscle;
-          return (
+            const stage = isMuscle ? stages[p.muscle] || "green" : null;
+            // The outline is the channel that does not need colour vision:
+            // a ring for recovering, a dashed ring for almost ready, none
+            // for ready. Selection still overrides it, since knowing which
+            // muscle you have tapped matters more for that instant.
+            const shape = THEME.shapes && stage ? STAGE_SHAPES[stage] : null;
+            return (
             <path
               key={p.key}
               d={p.d}
               data-muscle={p.muscle || undefined}
-              fill={isMuscle ? STAGE_COLORS[stages[p.muscle] || "green"] : NEUTRAL}
-              stroke={isSelected ? COLORS.text : COLORS.bg}
-              strokeWidth={isSelected ? 0.4 : 0.12}
+              data-stage={stage || undefined}
+              fill={isMuscle ? STAGE_COLORS[stage] : NEUTRAL_BOX.value}
+              stroke={isSelected ? COLORS.text : shape && shape.width ? COLORS.text : COLORS.bg}
+              strokeWidth={isSelected ? 0.4 : shape ? shape.width : 0.12}
+              strokeDasharray={!isSelected && shape && shape.dash ? shape.dash : undefined}
               strokeLinejoin="round"
               onClick={isMuscle ? () => onSelect(p.muscle) : undefined}
               style={isMuscle ? { cursor: "pointer" } : undefined}
@@ -5433,6 +5632,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
         )}
         <button
           onClick={onViewSettings}
+          aria-label="Settings"
           style={{ width: 38, height: 38, borderRadius: 10, background: COLORS.surface, border: `1px solid ${COLORS.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <SettingsIcon size={17} color={COLORS.textDim} />
@@ -5474,7 +5674,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => onResumeWorkout(unfinished)}
-              style={{ flex: 1, background: COLORS.accent, color: "#1A1200", border: "none", borderRadius: 8, padding: "10px 0", fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+              style={{ flex: 1, background: COLORS.accent, color: COLORS.onAccent, border: "none", borderRadius: 8, padding: "10px 0", fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
             >
               Resume
             </button>
@@ -5506,7 +5706,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
             </div>
             <button
               onClick={() => onStartProgrammeDay(nextDay, activeProgramme)}
-              style={{ width: "100%", background: COLORS.accent, color: "#1A1200", border: "none", borderRadius: 12, padding: "16px 0", fontFamily: "'Oswald', sans-serif", fontSize: 16, letterSpacing: 0.5, textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+              style={{ width: "100%", background: COLORS.accent, color: COLORS.onAccent, border: "none", borderRadius: 12, padding: "16px 0", fontFamily: "'Oswald', sans-serif", fontSize: 16, letterSpacing: 0.5, textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
             >
               <Play size={18} /> Start {nextDay.name}
             </button>
@@ -5525,7 +5725,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
             style={{
               width: "100%",
               background: COLORS.accent,
-              color: "#1A1200",
+              color: COLORS.onAccent,
               border: "none",
               borderRadius: 14,
               padding: "18px 0",
@@ -5570,7 +5770,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
                 </button>
                 <button
                   onClick={() => onStartTemplate(t)}
-                  style={{ width: 32, height: 32, borderRadius: 8, background: COLORS.accent, border: "none", color: "#1A1200", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  style={{ width: 32, height: 32, borderRadius: 8, background: COLORS.accent, border: "none", color: COLORS.onAccent, display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
                   <Play size={14} />
                 </button>
@@ -5745,7 +5945,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
 
 function StartChoiceScreen({ hasActive, activeName, nextDayName, onContinue, onNew, onFree, onBack }) {
   const card = { width: "100%", textAlign: "left", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 16, padding: 18, display: "flex", alignItems: "center", gap: 14 };
-  const iconWrap = (active) => ({ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: active ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, display: "flex", alignItems: "center", justifyContent: "center", color: active ? "#1A1200" : COLORS.textDim });
+  const iconWrap = (active) => ({ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: active ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, display: "flex", alignItems: "center", justifyContent: "center", color: active ? COLORS.onAccent : COLORS.textDim });
   const title = { color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 17, textTransform: "uppercase" };
   const sub = { color: COLORS.textDim, fontSize: 12.5, marginTop: 2 };
   return (
@@ -6037,7 +6237,7 @@ function ProgrammeBuilderScreen({ onBack, onCreate, onGuided }) {
             <button
               onClick={() => setStep(2)}
               disabled={!canContinueExercises}
-              style={{ width: "100%", background: canContinueExercises ? COLORS.accent : COLORS.surfaceRaised, border: "none", borderRadius: 12, padding: "14px 0", color: canContinueExercises ? "#1A1200" : COLORS.textDim, fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
+              style={{ width: "100%", background: canContinueExercises ? COLORS.accent : COLORS.surfaceRaised, border: "none", borderRadius: 12, padding: "14px 0", color: canContinueExercises ? COLORS.onAccent : COLORS.textDim, fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
             >
               Next: length
             </button>
@@ -6068,7 +6268,7 @@ function ProgrammeBuilderScreen({ onBack, onCreate, onGuided }) {
             <div style={{ color: COLORS.textDim, fontSize: 12.5, marginBottom: 16, textAlign: "center" }}>
               {weeks} weeks × {validDays.length} workouts ≈ <span style={{ color: COLORS.text }}>{weeks * validDays.length} sessions</span>
             </div>
-            <button onClick={() => setStep(3)} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "14px 0", color: "#1A1200", fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <button onClick={() => setStep(3)} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "14px 0", color: COLORS.onAccent, fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
               Next: name
             </button>
           </div>
@@ -6097,7 +6297,7 @@ function ProgrammeBuilderScreen({ onBack, onCreate, onGuided }) {
                 </div>
               ))}
             </div>
-            <button onClick={create} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "16px 0", color: "#1A1200", fontSize: 15, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <button onClick={create} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "16px 0", color: COLORS.onAccent, fontSize: 15, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <Check size={18} /> Create Programme
             </button>
           </div>
@@ -6199,7 +6399,7 @@ function GuidedProgrammeWizard({ onBack, onCreate, onDecline }) {
                   <button
                     key={d.value}
                     onClick={() => setDuration(d.value)}
-                    style={{ padding: "14px 0", borderRadius: 12, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surface, color: active ? "#1A1200" : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase" }}
+                    style={{ padding: "14px 0", borderRadius: 12, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surface, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase" }}
                   >
                     {d.label}
                   </button>
@@ -6218,7 +6418,7 @@ function GuidedProgrammeWizard({ onBack, onCreate, onDecline }) {
                   <button
                     key={m}
                     onClick={() => toggleFocus(m)}
-                    style={{ padding: "9px 14px", borderRadius: 999, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surface, color: active ? "#1A1200" : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+                    style={{ padding: "9px 14px", borderRadius: 999, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surface, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
                   >
                     {m}
                   </button>
@@ -6229,7 +6429,7 @@ function GuidedProgrammeWizard({ onBack, onCreate, onDecline }) {
             <button
               onClick={() => setStep(1)}
               disabled={!canContinue}
-              style={{ width: "100%", background: canContinue ? COLORS.accent : COLORS.surfaceRaised, border: "none", borderRadius: 12, padding: "14px 0", color: canContinue ? "#1A1200" : COLORS.textDim, fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
+              style={{ width: "100%", background: canContinue ? COLORS.accent : COLORS.surfaceRaised, border: "none", borderRadius: 12, padding: "14px 0", color: canContinue ? COLORS.onAccent : COLORS.textDim, fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
             >
               See My Recommendations
             </button>
@@ -6251,7 +6451,7 @@ function GuidedProgrammeWizard({ onBack, onCreate, onDecline }) {
             </div>
             <button
               onClick={() => setStep(2)}
-              style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "14px 0", color: "#1A1200", fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
+              style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "14px 0", color: COLORS.onAccent, fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
             >
               Show My Programme
             </button>
@@ -6281,7 +6481,7 @@ function GuidedProgrammeWizard({ onBack, onCreate, onDecline }) {
             </div>
             <button
               onClick={accept}
-              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: COLORS.accent, border: "none", borderRadius: 12, padding: "16px 0", color: "#1A1200", fontSize: 15, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: COLORS.accent, border: "none", borderRadius: 12, padding: "16px 0", color: COLORS.onAccent, fontSize: 15, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}
             >
               <Check size={18} /> Accept This Programme
             </button>
@@ -6406,7 +6606,7 @@ function ProgrammeScreen({ programme: programmeProp, onBack, onStartDay, onFinis
                 <button onClick={() => setConfirmingFinish(false)} style={{ flex: 1, background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 0", color: COLORS.textDim, fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
                   Cancel
                 </button>
-                <button onClick={() => { setConfirmingFinish(false); onFinishProgramme(); }} style={{ flex: 1, background: COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: "#1A1200", fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
+                <button onClick={() => { setConfirmingFinish(false); onFinishProgramme(); }} style={{ flex: 1, background: COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: COLORS.onAccent, fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
                   Finish
                 </button>
               </div>
@@ -6444,7 +6644,7 @@ function ProgrammeScreen({ programme: programmeProp, onBack, onStartDay, onFinis
                 </button>
                 <button
                   onClick={() => onStartDay(day, programme)}
-                  style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, background: isNext ? COLORS.accent : COLORS.surfaceRaised, border: isNext ? "none" : `1px solid ${COLORS.line}`, borderRadius: 10, padding: "10px 16px", color: isNext ? "#1A1200" : COLORS.text, fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
+                  style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, background: isNext ? COLORS.accent : COLORS.surfaceRaised, border: isNext ? "none" : `1px solid ${COLORS.line}`, borderRadius: 10, padding: "10px 16px", color: isNext ? COLORS.onAccent : COLORS.text, fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
                 >
                   <Play size={14} /> Start
                 </button>
@@ -6579,7 +6779,7 @@ function ProgrammeStatsScreen({ programme, isFinished, onBack, onHome }) {
             )}
 
             {isFinished && onHome && (
-              <button onClick={onHome} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "15px 0", color: "#1A1200", fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              <button onClick={onHome} style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 12, padding: "15px 0", color: COLORS.onAccent, fontSize: 14, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
                 Back to Home
               </button>
             )}
@@ -6956,7 +7156,7 @@ function SelectScreen({ split, settings, onBack, onContinue, onContinueSpecific 
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      color: count > 0 ? "#1A1200" : COLORS.textDim,
+                      color: count > 0 ? COLORS.onAccent : COLORS.textDim,
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 13,
                       fontWeight: 600,
@@ -7038,7 +7238,7 @@ function SelectScreen({ split, settings, onBack, onContinue, onContinueSpecific 
                               flexShrink: 0,
                             }}
                           >
-                            {isSelected && <Check size={14} color="#1A1200" />}
+                            {isSelected && <Check size={14} color={COLORS.onAccent} />}
                           </div>
                         </button>
                         <button
@@ -7077,7 +7277,7 @@ function SelectScreen({ split, settings, onBack, onContinue, onContinueSpecific 
                 onChange={(e) => setTemplateName(e.target.value)}
                 style={{ flex: 1, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "10px 12px", color: COLORS.text, fontSize: 13.5 }}
               />
-              <button onClick={saveTemplate} style={{ width: 40, borderRadius: 8, border: "none", background: COLORS.accent, color: "#1A1200", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <button onClick={saveTemplate} style={{ width: 40, borderRadius: 8, border: "none", background: COLORS.accent, color: COLORS.onAccent, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Check size={16} />
               </button>
               <button onClick={() => setShowNameInput(false)} style={{ width: 40, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -7095,7 +7295,7 @@ function SelectScreen({ split, settings, onBack, onContinue, onContinueSpecific 
           style={{
             width: "100%",
             background: activeTotal === 0 ? COLORS.surfaceRaised : COLORS.accent,
-            color: activeTotal === 0 ? COLORS.textDim : "#1A1200",
+            color: activeTotal === 0 ? COLORS.textDim : COLORS.onAccent,
             border: "none",
             borderRadius: 14,
             padding: "18px 0",
@@ -7146,17 +7346,24 @@ function setProgressTone(current, previous) {
 // Green reads as a win, so it gets the heavier outline; red is the same
 // weight so a drop is obvious without shouting, and grey sits quietly
 // between them.
-const SET_TONE_STYLES = {
-  up: { borderColor: COLORS.ok, borderWidth: 3 },
-  down: { borderColor: COLORS.bad, borderWidth: 2 },
-  same: { borderColor: COLORS.textDim, borderWidth: 2 },
-};
+// A function rather than a constant: it reads COLORS, and COLORS is rewritten
+// when the colour scheme changes.
+function setToneStyle(tone) {
+  const styles = {
+    up: { borderColor: COLORS.ok, borderWidth: 3 },
+    down: { borderColor: COLORS.bad, borderWidth: 2 },
+    same: { borderColor: COLORS.textDim, borderWidth: 2 },
+  };
+  return styles[tone];
+}
 
 // A circle rather than another box, in a colour of its own, so the row
 // still reads as "weight, reps" at a glance and the effort tag is clearly
 // a different kind of thing. Tapping pops the four choices out beside it
 // instead of opening a dialog — this gets used between sets, one-handed.
-const RIR_COLOR = "#7B8CFF";
+function rirColor() {
+  return THEME.rir || COLOUR_SCHEMES.default.rir;
+}
 
 function RirTile({ value, onPick, open, onToggle }) {
   const setOpen = onToggle;
@@ -7173,9 +7380,9 @@ function RirTile({ value, onPick, open, onToggle }) {
           width: 30,
           height: 30,
           borderRadius: "50%",
-          border: `1.5px solid ${set ? RIR_COLOR : COLORS.line}`,
-          background: set ? hexToRgba(RIR_COLOR, 0.18) : "transparent",
-          color: set ? RIR_COLOR : COLORS.textDim,
+          border: `1.5px solid ${set ? rirColor() : COLORS.line}`,
+          background: set ? hexToRgba(rirColor(), 0.18) : "transparent",
+          color: set ? rirColor() : COLORS.textDim,
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: set ? 12 : 10,
           display: "flex",
@@ -7199,7 +7406,7 @@ function RirTile({ value, onPick, open, onToggle }) {
               display: "flex",
               gap: 5,
               background: COLORS.surfaceRaised,
-              border: `1px solid ${RIR_COLOR}`,
+              border: `1px solid ${rirColor()}`,
               borderRadius: 12,
               padding: 6,
               boxShadow: "0 8px 20px rgba(0,0,0,0.45)",
@@ -7216,8 +7423,8 @@ function RirTile({ value, onPick, open, onToggle }) {
                     width: 34,
                     height: 34,
                     borderRadius: "50%",
-                    border: `1.5px solid ${active ? RIR_COLOR : COLORS.line}`,
-                    background: active ? RIR_COLOR : "transparent",
+                    border: `1.5px solid ${active ? rirColor() : COLORS.line}`,
+                    background: active ? rirColor() : "transparent",
                     color: active ? "#10142B" : COLORS.text,
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: 12.5,
@@ -7368,7 +7575,7 @@ function ExerciseCard({
         </div>
         <button
           onClick={() => setMenuOpen((v) => !v)}
-          style={{ width: 28, height: 28, borderRadius: 8, background: menuOpen ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${menuOpen ? COLORS.accent : COLORS.line}`, color: menuOpen ? "#1A1200" : COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          style={{ width: 28, height: 28, borderRadius: 8, background: menuOpen ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${menuOpen ? COLORS.accent : COLORS.line}`, color: menuOpen ? COLORS.onAccent : COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
         >
           <SettingsIcon size={14} />
         </button>
@@ -7416,7 +7623,7 @@ function ExerciseCard({
                         onMetaChange(ex.id, "method", opt);
                         setMenuOpen(false);
                       }}
-                      style={{ background: active ? COLORS.accent : COLORS.surface, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, borderRadius: 8, padding: "10px 8px", color: active ? "#1A1200" : COLORS.text, fontSize: 12, textAlign: "center", lineHeight: 1.25 }}
+                      style={{ background: active ? COLORS.accent : COLORS.surface, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, borderRadius: 8, padding: "10px 8px", color: active ? COLORS.onAccent : COLORS.text, fontSize: 12, textAlign: "center", lineHeight: 1.25 }}
                     >
                       {opt}
                     </button>
@@ -7468,7 +7675,7 @@ function ExerciseCard({
                       if (opt !== loading) onClearWeights(ex.id);
                       setLoadingOpen(false);
                     }}
-                    style={{ background: active ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, borderRadius: 10, padding: "11px 4px", color: active ? "#1A1200" : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 11.5, textTransform: "uppercase", letterSpacing: 0.3 }}
+                    style={{ background: active ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, borderRadius: 10, padding: "11px 4px", color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 11.5, textTransform: "uppercase", letterSpacing: 0.3 }}
                   >
                     {opt}
                   </button>
@@ -7496,7 +7703,7 @@ function ExerciseCard({
                 setWeightPromptDone(true);
                 setWeightPromptAt(null);
               }}
-              style={{ flex: 1, background: COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+              style={{ flex: 1, background: COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
             >
               Use {lastLoadingWeight}{settings.weightUnit}
             </button>
@@ -7686,7 +7893,7 @@ function ExerciseCard({
                         justifyContent: "center",
                       }}
                     >
-                      {checked && <Check size={11} color="#1A1200" />}
+                      {checked && <Check size={11} color={COLORS.onAccent} />}
                     </div>
                     {text}
                   </button>
@@ -7709,7 +7916,7 @@ function ExerciseCard({
         // Older records stored a single set on the record itself rather
         // than in a sets array, so fall back to that for the first row.
         const lastSets = last && last.sets && last.sets.length ? last.sets : last ? [{ weight: last.weight, reps: last.reps }] : [];
-        const tone = SET_TONE_STYLES[setProgressTone(s, lastSets[i])];
+        const tone = setToneStyle(setProgressTone(s, lastSets[i]));
         const toneStyle = tone ? { border: `${tone.borderWidth}px solid ${tone.borderColor}` } : null;
         return (
         <div
@@ -7745,7 +7952,7 @@ function ExerciseCard({
                   justifyContent: "center",
                 }}
               >
-                {s.done !== false && <Check size={13} color="#1A1200" />}
+                {s.done !== false && <Check size={13} color={COLORS.onAccent} />}
               </button>
             )}
             <div style={{ width: 18, color: COLORS.textDim, fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>{i + 1}</div>
@@ -8349,7 +8556,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
             <button
               onClick={confirmSuperset}
               disabled={ssPicker.picked.length < 2}
-              style={{ flex: 1, background: ssPicker.picked.length < 2 ? COLORS.surfaceRaised : COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: ssPicker.picked.length < 2 ? COLORS.textDim : "#1A1200", fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
+              style={{ flex: 1, background: ssPicker.picked.length < 2 ? COLORS.surfaceRaised : COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: ssPicker.picked.length < 2 ? COLORS.textDim : COLORS.onAccent, fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
             >
               Link {ssPicker.picked.length >= 2 ? `${ssPicker.picked.length} exercises` : ""}
             </button>
@@ -8401,7 +8608,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
                   {ssPicker && (
                     <button
                       onClick={() => toggleSupersetPick(ex.id)}
-                      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: picked ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${picked ? COLORS.accent : COLORS.line}`, borderRadius: 8, padding: "7px 0", marginBottom: 6, color: picked ? "#1A1200" : COLORS.textDim, fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
+                      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: picked ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${picked ? COLORS.accent : COLORS.line}`, borderRadius: 8, padding: "7px 0", marginBottom: 6, color: picked ? COLORS.onAccent : COLORS.textDim, fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
                     >
                       {picked ? <Check size={13} /> : <Plus size={13} />} {picked ? "Selected" : "Tap to add"}
                     </button>
@@ -8560,7 +8767,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
               style={{
                 width: "100%",
                 background: armedFinish ? "transparent" : COLORS.accent,
-                color: armedFinish ? COLORS.accent : "#1A1200",
+                color: armedFinish ? COLORS.accent : COLORS.onAccent,
                 border: armedFinish ? `1.5px solid ${COLORS.accent}` : "none",
                 borderRadius: 14,
                 padding: "18px 0",
@@ -8593,7 +8800,7 @@ function DoneScreen({ onHome, newPBs, programmeInfo }) {
   return (
     <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28 }}>
       <div style={{ width: 64, height: 64, borderRadius: 32, background: COLORS.accent, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
-        <Check size={32} color="#1A1200" />
+        <Check size={32} color={COLORS.onAccent} />
       </div>
       <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 24, textTransform: "uppercase", color: COLORS.text, marginBottom: 6 }}>
         Workout saved
@@ -8980,7 +9187,7 @@ function HistoryScreen({ onBack, settings }) {
                     <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                       <button
                         onClick={() => saveEdit(s)}
-                        style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: COLORS.accent, border: "none", borderRadius: 8, padding: "10px 0", color: "#1A1200", fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
+                        style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: COLORS.accent, border: "none", borderRadius: 8, padding: "10px 0", color: COLORS.onAccent, fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
                       >
                         <Check size={13} /> Save Changes
                       </button>
@@ -9644,7 +9851,7 @@ function PersonalStatsPanel() {
 
   const fieldLabel = { color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 };
   const inputStyle = { flex: 1, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 10px", color: COLORS.text, fontFamily: "'JetBrains Mono', monospace", fontSize: 13.5 };
-  const unitBtn = (active) => ({ width: 42, borderRadius: 8, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? "#1A1200" : COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5 });
+  const unitBtn = (active) => ({ width: 42, borderRadius: 8, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? COLORS.onAccent : COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5 });
 
   if (loading) {
     return (
@@ -9685,7 +9892,7 @@ function PersonalStatsPanel() {
       <button
         onClick={save}
         disabled={saving}
-        style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 10, padding: "11px 0", color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }}
+        style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 10, padding: "11px 0", color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }}
       >
         {savedFlash ? "Saved ✓" : saving ? "Saving…" : "Save"}
       </button>
@@ -9779,7 +9986,7 @@ function MeasurementsPanel() {
             <button
               key={u}
               onClick={() => changeUnit(u)}
-              style={{ width: 38, padding: "5px 0", borderRadius: 7, border: `1px solid ${unit === u ? COLORS.accent : COLORS.line}`, background: unit === u ? COLORS.accent : COLORS.surfaceRaised, color: unit === u ? "#1A1200" : COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5 }}
+              style={{ width: 38, padding: "5px 0", borderRadius: 7, border: `1px solid ${unit === u ? COLORS.accent : COLORS.line}`, background: unit === u ? COLORS.accent : COLORS.surfaceRaised, color: unit === u ? COLORS.onAccent : COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5 }}
             >
               {u}
             </button>
@@ -9820,7 +10027,7 @@ function MeasurementsPanel() {
 
       <button
         onClick={save}
-        style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 10, padding: "11px 0", color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }}
+        style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 10, padding: "11px 0", color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }}
       >
         Save Today's Measurements
       </button>
@@ -9893,7 +10100,7 @@ function WeightTrackingPanel() {
 
   const fieldLabel = { color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 };
   const inputStyle = { flex: 1, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 10px", color: COLORS.text, fontFamily: "'JetBrains Mono', monospace", fontSize: 13.5 };
-  const unitBtn = (active) => ({ width: 42, borderRadius: 8, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? "#1A1200" : COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5 });
+  const unitBtn = (active) => ({ width: 42, borderRadius: 8, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? COLORS.onAccent : COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5 });
 
   if (loading) return null;
 
@@ -9934,7 +10141,7 @@ function WeightTrackingPanel() {
           {["lb", "kg"].map((u) => (
             <button key={u} onClick={() => setUnit(u)} style={unitBtn(unit === u)}>{u}</button>
           ))}
-          <button onClick={saveGoal} style={{ padding: "0 14px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 12, textTransform: "uppercase" }}>Set</button>
+          <button onClick={saveGoal} style={{ padding: "0 14px", borderRadius: 8, border: "none", background: COLORS.accent, color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 12, textTransform: "uppercase" }}>Set</button>
         </div>
       </div>
 
@@ -9942,7 +10149,7 @@ function WeightTrackingPanel() {
         <div style={fieldLabel}>Log Today's Weight</div>
         <div style={{ display: "flex", gap: 6 }}>
           <input type="number" inputMode="decimal" placeholder="e.g. 172" value={logInput} onChange={(e) => setLogInput(e.target.value)} style={inputStyle} />
-          <button onClick={logWeight} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}>Log</button>
+          <button onClick={logWeight} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: COLORS.accent, color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}>Log</button>
         </div>
       </div>
 
@@ -10132,7 +10339,7 @@ function OneRMGoalForm({ current, isBodyweight, unit, onSave, onCancel }) {
             key={l.value}
             onClick={() => setLevel(l.value)}
             title={l.desc}
-            style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: `1px solid ${level === l.value ? COLORS.accent : COLORS.line}`, background: level === l.value ? COLORS.accent : COLORS.surface, color: level === l.value ? "#1A1200" : COLORS.textDim, fontSize: 11 }}
+            style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: `1px solid ${level === l.value ? COLORS.accent : COLORS.line}`, background: level === l.value ? COLORS.accent : COLORS.surface, color: level === l.value ? COLORS.onAccent : COLORS.textDim, fontSize: 11 }}
           >
             {l.label}
           </button>
@@ -10147,7 +10354,7 @@ function OneRMGoalForm({ current, isBodyweight, unit, onSave, onCancel }) {
         <button
           onClick={() => weeksPreview && onSave(c, t, level, weeksPreview)}
           disabled={!weeksPreview}
-          style={{ flex: 1, background: weeksPreview ? COLORS.accent : COLORS.surface, color: weeksPreview ? "#1A1200" : COLORS.textDim, border: "none", borderRadius: 8, padding: "10px 0", fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+          style={{ flex: 1, background: weeksPreview ? COLORS.accent : COLORS.surface, color: weeksPreview ? COLORS.onAccent : COLORS.textDim, border: "none", borderRadius: 8, padding: "10px 0", fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
         >
           Save Goal
         </button>
@@ -10262,7 +10469,7 @@ function OneRMScreen({ settings, onBack, onGenerateWorkout }) {
                           onChange={(e) => setLogInput(e.target.value)}
                           style={{ width: 90, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "7px 10px", color: COLORS.text, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
                         />
-                        <button onClick={() => saveManual1RM(id)} style={{ background: COLORS.accent, border: "none", borderRadius: 8, padding: "7px 12px", color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 11, textTransform: "uppercase" }}>
+                        <button onClick={() => saveManual1RM(id)} style={{ background: COLORS.accent, border: "none", borderRadius: 8, padding: "7px 12px", color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 11, textTransform: "uppercase" }}>
                           Save
                         </button>
                         <button onClick={() => { setLogForm(null); setLogInput(""); }} style={{ background: "transparent", border: "none", color: COLORS.textDim, fontSize: 11.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
@@ -10286,7 +10493,7 @@ function OneRMScreen({ settings, onBack, onGenerateWorkout }) {
                     )}
                   </div>
                   {goal && (
-                    <button onClick={() => onGenerateWorkout(id, milestone.value, isBodyweight)} style={{ background: COLORS.accent, color: "#1A1200", border: "none", borderRadius: 8, padding: "8px 12px", fontFamily: "'Oswald', sans-serif", fontSize: 11.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                    <button onClick={() => onGenerateWorkout(id, milestone.value, isBodyweight)} style={{ background: COLORS.accent, color: COLORS.onAccent, border: "none", borderRadius: 8, padding: "8px 12px", fontFamily: "'Oswald', sans-serif", fontSize: 11.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>
                       Test Day
                     </button>
                   )}
@@ -10460,7 +10667,7 @@ function OneRMWorkoutScreen({ exerciseId, target, isBodyweight, settings, onBack
         <button
           onClick={handleSave}
           disabled={saving}
-          style={{ width: "100%", background: COLORS.accent, color: "#1A1200", border: "none", borderRadius: 14, padding: "18px 0", fontFamily: "'Oswald', sans-serif", fontSize: 17, letterSpacing: 1, textTransform: "uppercase" }}
+          style={{ width: "100%", background: COLORS.accent, color: COLORS.onAccent, border: "none", borderRadius: 14, padding: "18px 0", fontFamily: "'Oswald', sans-serif", fontSize: 17, letterSpacing: 1, textTransform: "uppercase" }}
         >
           {saving ? "Saving…" : "Save Result"}
         </button>
@@ -10497,7 +10704,7 @@ function SettingsToggleRow({ label, desc, value, onToggle }) {
             width: 20,
             height: 20,
             borderRadius: 10,
-            background: value ? "#1A1200" : COLORS.textDim,
+            background: value ? COLORS.onAccent : COLORS.textDim,
             position: "absolute",
             top: 2,
             left: value ? 21 : 2,
@@ -10593,7 +10800,7 @@ function BackupPanel() {
         Your training is stored on this phone and nowhere else. Save a copy somewhere safe so a lost or wiped phone doesn't take it with it.
       </div>
 
-      <button onClick={handleExport} disabled={busy} style={{ ...btn, background: COLORS.accent, border: "none", color: "#1A1200", marginBottom: 8 }}>
+      <button onClick={handleExport} disabled={busy} style={{ ...btn, background: COLORS.accent, border: "none", color: COLORS.onAccent, marginBottom: 8 }}>
         {busy ? "Working…" : "Save Backup File"}
       </button>
       <button onClick={pickFile} disabled={busy} style={{ ...btn, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, color: COLORS.text }}>
@@ -10622,12 +10829,44 @@ function BackupPanel() {
             <button onClick={() => setConfirmFile(null)} style={{ ...btn, flex: 1, background: "transparent", border: `1px solid ${COLORS.line}`, color: COLORS.textDim, padding: "10px 0" }}>
               Cancel
             </button>
-            <button onClick={confirmRestore} style={{ ...btn, flex: 1, background: COLORS.bad, border: "none", color: "#1A1200", padding: "10px 0" }}>
+            <button onClick={confirmRestore} style={{ ...btn, flex: 1, background: COLORS.bad, border: "none", color: COLORS.onAccent, padding: "10px 0" }}>
               Replace
             </button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// The three readiness states as they will actually look, on the page where
+// you choose them. Picking a scheme from four names and finding out what it
+// did by going back to Home is a poor way to make this decision, especially
+// for the person most likely to be making it.
+function StagePreview() {
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {STAGE_LEGEND.map(([stage, note]) => {
+        const shape = THEME.shapes ? STAGE_SHAPES[stage] : null;
+        return (
+          <div key={stage} style={{ flex: 1, background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
+            <div
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: "50%",
+                margin: "0 auto 7px",
+                background: STAGE_COLORS[stage],
+                border: shape && shape.width ? `2px ${shape.dash ? "dashed" : "solid"} ${COLORS.text}` : "2px solid transparent",
+              }}
+            />
+            <div style={{ color: COLORS.text, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              {STAGE_LABELS[stage]}
+            </div>
+            <div style={{ color: COLORS.textDim, fontSize: 10, marginTop: 2 }}>{note}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -10675,7 +10914,7 @@ function SettingsScreen({ settings, onChange, onBack, onReplayTour, onViewFeatur
               <button
                 key={m.value}
                 onClick={() => onChange({ ...settings, appMode: m.value })}
-                style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surface, color: active ? "#1A1200" : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5 }}
+                style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surface, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5 }}
               >
                 {m.label}
               </button>
@@ -10685,6 +10924,78 @@ function SettingsScreen({ settings, onChange, onBack, onReplayTour, onViewFeatur
         <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.4 }}>
           {APP_MODES.find((m) => m.value === appMode).desc}
         </div>
+      </div>
+
+      <div style={{ padding: "0 20px 20px" }}>
+        <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+          Colour &amp; Contrast
+        </div>
+        <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
+          The readiness map tells you what is recovered using colour. If red and green look alike to you, pick the scheme that matches — every colour in the app that means something changes with it, and the muscles gain outlines so you are never relying on colour alone.
+        </div>
+
+        <StagePreview />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          {COLOUR_SCHEME_ORDER.map((key) => {
+            const sch = COLOUR_SCHEMES[key];
+            const active = (settings.colourScheme || "default") === key;
+            return (
+              <button
+                key={key}
+                onClick={() => onChange({ ...settings, colourScheme: key })}
+                style={{
+                  textAlign: "left",
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  border: `1px solid ${active ? COLORS.accent : COLORS.line}`,
+                  background: active ? hexToRgba(COLORS.accent, 0.12) : COLORS.surface,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
+                  <span style={{ color: active ? COLORS.accent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    {sch.label}
+                  </span>
+                  <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {["red", "amber", "green"].map((st) => (
+                      <span key={st} style={{ width: 16, height: 16, borderRadius: 4, background: sch.stages[st], border: sch.shapes && st !== "green" ? `1.5px ${st === "amber" ? "dashed" : "solid"} ${COLORS.text}` : "none" }} />
+                    ))}
+                  </span>
+                </div>
+                <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>{sch.desc}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          onClick={() => onChange({ ...settings, highContrast: !settings.highContrast })}
+          style={{
+            width: "100%",
+            marginTop: 10,
+            textAlign: "left",
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: `1px solid ${settings.highContrast ? COLORS.accent : COLORS.line}`,
+            background: settings.highContrast ? hexToRgba(COLORS.accent, 0.12) : COLORS.surface,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", color: settings.highContrast ? COLORS.accent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+              High Contrast
+            </span>
+            <span style={{ display: "block", color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>
+              Pure black behind everything, brighter text, heavier lines. For bad lighting, low vision, or a phone held at arm&rsquo;s length in a bright gym. Turns the readiness outlines on whatever scheme you are using.
+            </span>
+          </span>
+          <span style={{ width: 42, height: 24, borderRadius: 12, background: settings.highContrast ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${settings.highContrast ? COLORS.accent : COLORS.line}`, flexShrink: 0, position: "relative" }}>
+            <span style={{ position: "absolute", top: 2, left: settings.highContrast ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: settings.highContrast ? COLORS.onAccent : COLORS.textDim }} />
+          </span>
+        </button>
       </div>
 
       <div style={{ padding: "0 20px 16px" }}>
@@ -10723,7 +11034,7 @@ function SettingsScreen({ settings, onChange, onBack, onReplayTour, onViewFeatur
             <button
               onClick={onBuy}
               disabled={purchaseBusy}
-              style={{ width: "100%", marginBottom: 8, background: COLORS.accent, border: "none", borderRadius: 10, padding: "12px 0", color: "#1A1200", fontSize: 13.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
+              style={{ width: "100%", marginBottom: 8, background: COLORS.accent, border: "none", borderRadius: 10, padding: "12px 0", color: COLORS.onAccent, fontSize: 13.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}
             >
               {purchaseBusy ? "Working…" : "Start Free Trial"}
             </button>
@@ -10908,6 +11219,9 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           </FeatureItem>
           <FeatureItem name="Change the Implement (Advanced Mode)">
             Mid-workout, open an exercise's menu (gear icon) to change how you're loading it. The exercise stays the same, so your history and any superset stay attached — only the comparison narrows to sessions done the same way.
+          </FeatureItem>
+          <FeatureItem name="Colour schemes for colour blindness">
+            Settings → Colour &amp; Contrast. The readiness map uses colour to say what is recovered, and red/amber/green is the worst triple for the commonest kind of colour blindness. Pick the scheme that matches how you see: red–green, blue–yellow, or monochrome, which uses brightness alone. Everything in the app that carries meaning through colour changes with it, and in any scheme but the original the muscles gain outlines so colour is never the only clue. High Contrast is a separate switch — pure black, brighter text, heavier lines.
           </FeatureItem>
           <FeatureItem name="Exercise Database">
             From the Home screen: browse every exercise by body part. Reorder anything — the order is the priority the app uses when it picks exercises for you, so moving cable pushdowns to the top means you get them first. Remove exercises you can't or won't do (they vanish from every picker, and you can restore them any time), and add your own.
@@ -11371,7 +11685,7 @@ function SuggestedScreen({ onBack, onBuild }) {
                 borderRadius: 12,
                 border: `1px solid ${duration === d.value ? COLORS.accent : COLORS.line}`,
                 background: duration === d.value ? COLORS.accent : COLORS.surface,
-                color: duration === d.value ? "#1A1200" : COLORS.text,
+                color: duration === d.value ? COLORS.onAccent : COLORS.text,
                 fontFamily: "'Oswald', sans-serif",
                 fontSize: 14,
                 textTransform: "uppercase",
@@ -11390,7 +11704,7 @@ function SuggestedScreen({ onBack, onBuild }) {
           style={{
             width: "100%",
             background: ready ? COLORS.accent : COLORS.surfaceRaised,
-            color: ready ? "#1A1200" : COLORS.textDim,
+            color: ready ? COLORS.onAccent : COLORS.textDim,
             border: "none",
             borderRadius: 14,
             padding: "18px 0",
@@ -11631,7 +11945,7 @@ function TourWorkoutPreviewScreen() {
           </div>
           <div style={rowStyle}>
             <div style={{ width: 20, height: 20, borderRadius: 5, background: COLORS.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Check size={13} color="#1A1200" />
+              <Check size={13} color={COLORS.onAccent} />
             </div>
             <div style={{ ...inputStyle }}>60</div>
             <div style={{ ...inputStyle }}>8</div>
@@ -11754,7 +12068,7 @@ function FeatureTour({ stepIndex, onNext, onPrev, onSkip }) {
               Back
             </button>
           )}
-          <button onClick={() => (last ? onSkip() : onNext())} style={{ flex: 1, padding: "13px 0", borderRadius: 12, border: "none", background: COLORS.accent, color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <button onClick={() => (last ? onSkip() : onNext())} style={{ flex: 1, padding: "13px 0", borderRadius: 12, border: "none", background: COLORS.accent, color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5 }}>
             {last ? "Get Started" : "Next"}
           </button>
         </div>
@@ -11808,7 +12122,7 @@ function WhatsNewScreen({ notes, onDismiss }) {
       <div style={{ position: "sticky", bottom: 0, padding: `16px 22px calc(20px + env(safe-area-inset-bottom, 0px))`, background: `linear-gradient(to top, ${COLORS.bg} 65%, transparent)` }}>
         <button
           onClick={onDismiss}
-          style={{ width: "100%", maxWidth: 460, margin: "0 auto", display: "block", background: COLORS.accent, border: "none", borderRadius: 14, padding: "17px 0", color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 15, textTransform: "uppercase", letterSpacing: 0.5 }}
+          style={{ width: "100%", maxWidth: 460, margin: "0 auto", display: "block", background: COLORS.accent, border: "none", borderRadius: 14, padding: "17px 0", color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 15, textTransform: "uppercase", letterSpacing: 0.5 }}
         >
           Start Training
         </button>
@@ -11923,7 +12237,7 @@ function WelcomeScreen({ onChoose }) {
                       justifyContent: "center",
                     }}
                   >
-                    {active && <Check size={11} color="#1A1200" />}
+                    {active && <Check size={11} color={COLORS.onAccent} />}
                   </div>
                   <span style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 17, textTransform: "uppercase", letterSpacing: 0.5 }}>
                     {m.label}
@@ -11951,7 +12265,7 @@ function WelcomeScreen({ onChoose }) {
             border: picked ? "none" : `1px solid ${COLORS.line}`,
             borderRadius: 14,
             padding: "17px 0",
-            color: picked ? "#1A1200" : COLORS.textDim,
+            color: picked ? COLORS.onAccent : COLORS.textDim,
             fontFamily: "'Oswald', sans-serif",
             fontSize: 15,
             textTransform: "uppercase",
@@ -11980,7 +12294,7 @@ function PlanCard({ label, price, note, selected, onSelect, badge }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 15, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
           {badge && (
-            <span style={{ background: COLORS.accent, color: "#1A1200", fontSize: 9.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5, borderRadius: 5, padding: "2px 6px" }}>{badge}</span>
+            <span style={{ background: COLORS.accent, color: COLORS.onAccent, fontSize: 9.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5, borderRadius: 5, padding: "2px 6px" }}>{badge}</span>
           )}
         </div>
         {note && <div style={{ color: COLORS.textDim, fontSize: 11.5, marginTop: 3 }}>{note}</div>}
@@ -12042,7 +12356,7 @@ function PaywallScreen({ onBack, onBuy, onRestore, busy, message, offers, trialD
       <button
         onClick={() => onBuy(plan)}
         disabled={busy}
-        style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 14, padding: "17px 0", color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 16, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}
+        style={{ width: "100%", background: COLORS.accent, border: "none", borderRadius: 14, padding: "17px 0", color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 16, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}
       >
         {busy ? "Working…" : `Start ${days}-Day Free Trial`}
       </button>
@@ -12140,7 +12454,13 @@ export default function App() {
       // that includes them positions them correctly rather than appending.
       await loadExerciseOrder();
       const savedSettings = await safeGet("settings");
-      if (savedSettings) setSettings({ ...DEFAULT_SETTINGS, ...savedSettings, weightUnit: "kg" });
+      if (savedSettings) {
+        const merged = { ...DEFAULT_SETTINGS, ...savedSettings, weightUnit: "kg" };
+        // Before setSettings, so the first paint is already in the right
+        // palette rather than flashing the standard one and correcting.
+        applyColourScheme(merged.colourScheme, merged.highContrast);
+        setSettings(merged);
+      }
       const active = await getActiveProgramme();
       setCurrentProgramme(active);
       const tourSeen = await safeGet("tour-seen");
@@ -12241,6 +12561,10 @@ export default function App() {
   }, [license, screen]);
 
   async function updateSettings(next) {
+    // The palette lives in a module object every screen reads while it
+    // paints, so it has to be rewritten before React re-renders rather than
+    // passed down as state.
+    applyColourScheme(next.colourScheme, next.highContrast);
     setSettings(next);
     await safeSet("settings", next);
   }
