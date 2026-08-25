@@ -736,6 +736,37 @@ const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
   {
+    version: "1.16.0",
+    date: "August 2026",
+    headline: "Better sessions when Iron Log picks them for you.",
+    items: [
+      {
+        title: "A ranking decides what you get",
+        body: "Auto-built workouts now follow an explicit priority list rather than working it out on the fly. A whole-body session is squat, pull-up, dips, lateral raise, curl, pushdown, hanging leg raise \u2014 the best lift for each area, biggest first. Train only some muscles and it walks the same list with the parts that do not apply left out.",
+      },
+      {
+        title: "Muscles alternate through the session",
+        body: "Two chest exercises and one back used to come back as chest, chest, back, so the second chest lift landed on a chest the first had already cooked. They are dealt out one muscle at a time now.",
+      },
+      {
+        title: "Never four brutal lifts in a row",
+        body: "A generated session holds at most three of the genuinely fatiguing lifts, and a short one is made of them rather than robbed of them \u2014 fifteen minutes is squat, pull-up and dips, not a squat and two curls.",
+      },
+      {
+        title: "Your own order still wins",
+        body: "Reorder a muscle with the arrows in the Exercise Database and your ranking fills that muscle's slot instead of the built-in one. Where the two disagree, you win.",
+      },
+      {
+        title: "A week is seven days",
+        body: "Programme progress counted sessions and called them weeks, so seven repeats of one full-body day read as week four. It counts real weeks from the day you started the block now. The session tally beside it is unchanged, so you can still see how much of the block you have actually done.",
+      },
+      {
+        title: "One less question before you start",
+        body: "Train Ready Muscles asks how long you have, and nothing else. The strength-or-size choice is gone \u2014 the ranking decides what you get, and the extra tap was buying nothing.",
+      },
+    ],
+  },
+  {
     version: "1.15.0",
     date: "August 2026",
     headline: "Fix an exercise instead of replacing it.",
@@ -2900,8 +2931,27 @@ const MAX_PRESSES_PER_MUSCLE = 2;
 function isPressPattern(pattern) {
   return PRESS_PATTERNS.has(pattern);
 }
-function makeSessionPlan() {
-  return { pressTotal: 0, pressByMuscle: {}, usedPatterns: {} };
+// heavyBudget caps how many DEMAND_HEAVY lifts the session may contain (see
+// heavyBudgetFor). Left undefined it is unlimited, which is what a hand-built
+// workout should be — the budget is there to stop the app from handing you
+// five brutal lifts, not to stop you from choosing them.
+function makeSessionPlan(heavyBudget) {
+  return {
+    pressTotal: 0,
+    pressByMuscle: {},
+    usedPatterns: {},
+    heavyUsed: 0,
+    heavyBudget: heavyBudget === undefined ? Infinity : heavyBudget,
+    // covered counts indirect work too; direct is only the muscles an
+    // exercise was actually chosen for. The difference is what stops a
+    // session's spare slots going to a second calf raise while another
+    // muscle has had nothing of its own.
+    covered: new Set(),
+    direct: new Set(),
+  };
+}
+function canTakeHeavy(plan) {
+  return plan.heavyUsed < plan.heavyBudget;
 }
 function canTakePress(plan, muscle) {
   if (plan.pressTotal >= MAX_PRESSES_PER_DAY) return false;
@@ -2914,9 +2964,14 @@ function canTakePress(plan, muscle) {
 function patternUsedFor(plan, muscle, pattern) {
   return !!(plan.usedPatterns[muscle] && plan.usedPatterns[muscle].has(pattern));
 }
-function recordPick(plan, muscle, pattern) {
+function recordPick(plan, muscle, pattern, ex) {
   if (!plan.usedPatterns[muscle]) plan.usedPatterns[muscle] = new Set();
   plan.usedPatterns[muscle].add(pattern);
+  if (ex) {
+    if (isHeavyExercise(ex)) plan.heavyUsed += 1;
+    musclesHitBy(ex, muscle).forEach((m) => plan.covered.add(m));
+    plan.direct.add(muscle);
+  }
   if (!isPressPattern(pattern)) return;
   plan.pressTotal += 1;
   plan.pressByMuscle[muscle] = (plan.pressByMuscle[muscle] || 0) + 1;
@@ -2934,6 +2989,14 @@ function pickSmartForMuscle(muscle, count, usedIds, randomize, typeFilter, plan)
   let pool = visibleExercises(muscle).filter((e) => !usedIds.has(e.id) && !PAUSED_EXERCISE_IDS.has(e.id));
   if (typeFilter) pool = pool.filter((e) => e.type === typeFilter);
   if (plan) pool = pool.filter((e) => !isPressPattern(e.pattern) || canTakePress(plan, muscle));
+  // Once the session's heavy lifts are spent, drop them from the pool — but
+  // only if something is left to pick instead. A muscle whose every option is
+  // heavy (Lower Back is deadlift and good-morning) would otherwise be
+  // silently skipped, which is worse than one lift over budget.
+  if (plan && !canTakeHeavy(plan)) {
+    const lighter = pool.filter((e) => !isHeavyExercise(e));
+    if (lighter.length) pool = lighter;
+  }
   if (pool.length === 0 || count <= 0) return [];
 
   const groups = {};
@@ -2973,7 +3036,10 @@ function pickSmartForMuscle(muscle, count, usedIds, randomize, typeFilter, plan)
       // Re-checked per pick (not just when building the pool) so a single
       // call asking for several exercises can't blow the day's press budget.
       if (plan && isPressPattern(candidate.pattern) && !canTakePress(plan, muscle)) continue;
-      if (plan) recordPick(plan, muscle, candidate.pattern || candidate.type);
+      // Re-checked per pick for the same reason the press cap is: one call
+      // asking for three exercises must not spend the whole day's budget.
+      if (plan && isHeavyExercise(candidate) && !canTakeHeavy(plan) && groups[key].some((c, ci) => ci > round && !isHeavyExercise(c))) continue;
+      if (plan) recordPick(plan, muscle, candidate.pattern || candidate.type, candidate);
       picked.push({ ...candidate, muscle });
       usedIds.add(candidate.id);
       addedThisRound = true;
@@ -2990,24 +3056,73 @@ function pickSmartForMuscle(muscle, count, usedIds, randomize, typeFilter, plan)
 // isolation-last, regardless of tap order.
 function buildWorkout(split, selection, randomize) {
   const usedIds = new Set();
-  const plan = makeSessionPlan();
-  const picked = [];
+  const wanted = SPLITS[split].filter((m) => (selection[m] || 0) > 0);
+  const total = wanted.reduce((a, m) => a + selection[m], 0);
+  const plan = makeSessionPlan(heavyBudgetFor(total));
 
-  for (const m of SPLITS[split]) {
-    const count = selection[m] || 0;
-    if (count <= 0) continue;
-    picked.push(...pickSmartForMuscle(m, count, usedIds, randomize, null, plan));
+  // The priority table first, since these are chosen muscles and the table is
+  // what says which lift each one should reach for.
+  const fromTable = buildByPriority(wanted, selection, total, usedIds, plan, randomize);
+
+  // Then anything it could not fill: muscles the table does not cover, or a
+  // muscle tapped more times than the table has entries for.
+  const fallback = [];
+  for (const m of wanted) {
+    const already = fromTable.filter((e) => e.muscle === m).length;
+    const short = selection[m] - already;
+    if (short > 0) fallback.push(...pickSmartForMuscle(m, short, usedIds, randomize, null, plan));
   }
 
-  const compounds = picked.filter((e) => e.type === "compound");
-  const isolations = picked.filter((e) => e.type !== "compound");
-  return [...compounds, ...isolations];
+  // The table's own order is the order the session should run in, so its
+  // picks are left exactly as they came. Only the fallback needs arranging,
+  // and it goes after — it is the accessory work by definition.
+  return [...fromTable, ...staggerByMuscle(fallback)];
 }
 
-// Re-applies the compound-first, isolation-last rule to an arbitrary list —
-// used when an exercise is added mid-workout.
+// Deals the list out one muscle at a time instead of finishing one muscle
+// before starting the next. Asking for two Chest and one Back used to give
+// bench, incline, pull-up — both chest lifts back to back, the second one
+// done on a chest already cooked by the first. It now gives bench, pull-up,
+// incline, which is the same work with a rest for each muscle built into the
+// order of it.
+//
+// Order within a muscle is preserved exactly, so the ranking that decided
+// which lifts to pick still decides which comes first.
+function staggerByMuscle(list) {
+  const byMuscle = new Map();
+  for (const e of list) {
+    const key = e.muscle || "";
+    if (!byMuscle.has(key)) byMuscle.set(key, []);
+    byMuscle.get(key).push(e);
+  }
+  const queues = [...byMuscle.values()];
+  const out = [];
+  for (let round = 0; out.length < list.length; round++) {
+    let addedThisRound = false;
+    for (const q of queues) {
+      if (q[round]) {
+        out.push(q[round]);
+        addedThisRound = true;
+      }
+    }
+    if (!addedThisRound) break;
+  }
+  return out;
+}
+
+// The house rule for what order a workout runs in: compounds while you are
+// fresh, isolation after, and within each of those, muscles staggered rather
+// than blocked together.
+function orderWorkout(list) {
+  const compounds = list.filter((e) => e.type === "compound");
+  const isolations = list.filter((e) => e.type !== "compound");
+  return [...staggerByMuscle(compounds), ...staggerByMuscle(isolations)];
+}
+
+// Re-applies the ordering rule to an arbitrary list — used when an exercise
+// is added mid-workout.
 function reorderByType(list) {
-  return [...list.filter((e) => e.type === "compound"), ...list.filter((e) => e.type !== "compound")];
+  return orderWorkout(list);
 }
 
 /* ---------------------------------------------------------------
@@ -3021,11 +3136,6 @@ const DURATION_OPTIONS = [
   { value: 60, label: "60+ min" },
 ];
 const DURATION_EXERCISE_COUNTS = { 15: 3, 30: 5, 45: 6, 60: 8 };
-
-const GOAL_OPTIONS = [
-  { value: "strength", label: "Strength", desc: "Compound-heavy, built around the big lifts." },
-  { value: "size", label: "Size", desc: "Balanced compound + isolation work." },
-];
 
 // Round-robin across muscles picking one exercise of a given type at a time
 // (pattern-aware via pickSmartForMuscle), so the result isn't dominated by
@@ -3049,24 +3159,35 @@ function roundRobinPick(muscles, type, count, usedIds, randomize, plan) {
 }
 
 // Builds a workout from whichever muscles are most recovered right now.
-// Strength skews heavily toward compounds; Size keeps a more even split.
-function buildSuggestedWorkout(readyMuscles, exerciseCount, goal, randomize) {
+//
+// Two rules shape it beyond that. The session gets a heavy-lift budget so it
+// can never come back as four brutal compounds in a row (see heavyBudgetFor),
+// and the compounds are chosen for how much ground they cover between them
+// rather than one muscle at a time. Isolation work then goes to whatever the
+// compounds left untouched, which is what isolation work is for.
+function buildSuggestedWorkout(readyMuscles, exerciseCount, randomize) {
   const usedIds = new Set();
-  const plan = makeSessionPlan();
-  const compoundTarget = goal === "strength" ? Math.max(1, Math.round(exerciseCount * 0.75)) : Math.round(exerciseCount * 0.5);
+  const plan = makeSessionPlan(heavyBudgetFor(exerciseCount));
 
-  let compounds = roundRobinPick(readyMuscles, "compound", compoundTarget, usedIds, randomize, plan);
-  let isolations = roundRobinPick(readyMuscles, "isolation", exerciseCount - compounds.length, usedIds, randomize, plan);
+  // The table decides what gets picked and in what order. With every muscle
+  // ready this is a whole-body session read straight across it; with four
+  // muscles green it is the same walk over the families those muscles belong
+  // to. Either way the heavy budget still applies.
+  const fromTable = buildByPriority(readyMuscles, null, exerciseCount, usedIds, plan, randomize);
 
-  let remaining = exerciseCount - compounds.length - isolations.length;
-  if (remaining > 0) {
-    compounds = [...compounds, ...roundRobinPick(readyMuscles, "compound", remaining, usedIds, randomize, plan)];
-    remaining = exerciseCount - compounds.length - isolations.length;
-  }
-  if (remaining > 0) {
-    isolations = [...isolations, ...roundRobinPick(readyMuscles, "isolation", remaining, usedIds, randomize, plan)];
-  }
-  return [...compounds, ...isolations];
+  // Whatever is left goes to muscles the table does not cover and to any the
+  // session has not trained directly yet — calves, forearms, traps, shins.
+  // Isolation first, because the table has already supplied the compounds.
+  const fallback = [];
+  const leastServed = () => [
+    ...readyMuscles.filter((m) => !plan.direct.has(m)),
+    ...readyMuscles.filter((m) => plan.direct.has(m)),
+  ];
+  const need = () => exerciseCount - fromTable.length - fallback.length;
+  if (need() > 0) fallback.push(...roundRobinPick(leastServed(), "isolation", need(), usedIds, randomize, plan));
+  if (need() > 0) fallback.push(...roundRobinPick(leastServed(), "compound", need(), usedIds, randomize, plan));
+
+  return [...fromTable, ...staggerByMuscle(fallback)];
 }
 
 // selectedKeys is a Set of "Muscle:exerciseId" strings from the specific-exercise
@@ -3080,9 +3201,7 @@ function buildFromSpecificSelection(split, selectedKeys) {
       }
     }
   }
-  const compounds = picked.filter((e) => e.type === "compound");
-  const isolations = picked.filter((e) => e.type === "isolation");
-  return [...compounds, ...isolations];
+  return orderWorkout(picked);
 }
 /* ---------------------------------------------------------------
    PROGRAMMES
@@ -3218,7 +3337,7 @@ const PROGRAMME_LENGTHS = [
 // Used for Custom days, which have no hand-authored exercise list.
 function defaultExercisesForDay(muscles) {
   const usedIds = new Set();
-  const plan = makeSessionPlan();
+  const plan = makeSessionPlan(heavyBudgetFor(7));
   const out = [];
   muscles.forEach((m, i) => {
     const count = i < 2 ? 2 : 1;
@@ -3407,14 +3526,23 @@ const DAY_BLUEPRINTS = {
 // used is out. Where a slot could be satisfied by
 // a pattern already used in this session, an unused pattern wins, so a
 // second chest slot becomes an incline rather than a second flat press.
-function fillSlot(slot, usedIds, usedPatterns) {
-  const pool = visibleExercises(slot.muscle).filter(
+function fillSlot(slot, usedIds, usedPatterns, plan) {
+  let pool = visibleExercises(slot.muscle).filter(
     (e) =>
       e.type === slot.type &&
       slot.patterns.includes(e.pattern) &&
       !usedIds.has(e.id) &&
       !PAUSED_EXERCISE_IDS.has(e.id)
   );
+  // The blueprints are written slot by slot and front-load the big lifts, so
+  // a short day took the first N slots and came back nearly all heavy — a
+  // five-exercise Upper day was bench, row, overhead press, pull-up. Past the
+  // budget a slot takes the best lighter option it has; if it has none it
+  // still fills, because an empty slot is worse than one lift over.
+  if (plan && !canTakeHeavy(plan)) {
+    const lighter = pool.filter((e) => !isHeavyExercise(e));
+    if (lighter.length) pool = lighter;
+  }
   if (pool.length === 0) return null;
   return pool.find((e) => !usedPatterns.has(`${slot.muscle}:${e.pattern}`)) || pool[0];
 }
@@ -3450,19 +3578,19 @@ function buildGuidedDays(preset, exerciseCount, focusMuscles) {
 
       const usedIds = new Set();
       const usedPatterns = new Set();
+      const plan = makeSessionPlan(heavyBudgetFor(targetCount));
       picked = [];
       for (const slot of [...head, ...tail]) {
         if (picked.length >= targetCount) break;
-        const ex = fillSlot(slot, usedIds, usedPatterns);
+        const ex = fillSlot(slot, usedIds, usedPatterns, plan);
         if (!ex) continue; // nothing left that fits — let the next slot through
         usedIds.add(ex.id);
         usedPatterns.add(`${slot.muscle}:${ex.pattern}`);
+        recordPick(plan, slot.muscle, ex.pattern || ex.type, ex);
         picked.push({ ...ex, muscle: slot.muscle });
       }
       // Only if the user has removed so much that the blueprint ran dry.
       if (picked.length < targetCount) {
-        const plan = makeSessionPlan();
-        picked.forEach((e) => recordPick(plan, e.muscle, e.pattern));
         for (const m of muscles) {
           if (picked.length >= targetCount) break;
           const extra = pickSmartForMuscle(m, targetCount - picked.length, usedIds, false, null, plan);
@@ -3476,7 +3604,7 @@ function buildGuidedDays(preset, exerciseCount, focusMuscles) {
       // No blueprint for this day name (a preset the guided flow does not
       // currently offer) — fall back to the ranked round-robin.
       const usedIds = new Set();
-      const plan = makeSessionPlan();
+      const plan = makeSessionPlan(heavyBudgetFor(targetCount));
       const focusInDay = muscles.filter((m) => focus.has(m));
       const orderedMuscles = [...focusInDay, ...muscles.filter((m) => !focusInDay.includes(m))];
       picked = [];
@@ -3549,10 +3677,33 @@ function programmePlanned(programme) {
 function programmeCompleted(programme) {
   return (programme.log || []).length;
 }
+// When the block actually started: the first session logged against it, or
+// failing that the day it was created. Creation is the weaker answer — a
+// programme built on Sunday night and started on Wednesday should not be
+// three days into week one — so a real session wins wherever there is one.
+function programmeStartDate(programme) {
+  const log = programme && programme.log;
+  if (Array.isArray(log) && log.length) {
+    const first = log.reduce((a, b) => ((a.at || a.date) <= (b.at || b.date) ? a : b));
+    return first.at || first.date || null;
+  }
+  return (programme && programme.createdAt) || null;
+}
+
+// Weeks are calendar weeks, counted from the start of the block.
+//
+// This used to be completed sessions divided by the number of days in the
+// cycle, which is a cycle counter wearing the word "week". It could not tell
+// seven repeats of one full-body day from a fortnight of proper training —
+// both read as week four — and someone training six days a week on a
+// three-day split reached "week two" after seven days. A week is seven days.
 function programmeWeekNumber(programme) {
-  const perCycle = (programme.days || []).length || 1;
-  const wk = Math.floor(programmeCompleted(programme) / perCycle) + 1;
-  return Math.min(wk, programme.weeks || wk);
+  const started = programmeStartDate(programme);
+  if (!started) return 1;
+  const ms = Date.now() - Date.parse(started);
+  if (!Number.isFinite(ms)) return 1;
+  const wk = Math.floor(Math.max(0, ms) / (7 * 86400000)) + 1;
+  return Math.min(Math.max(1, wk), programme.weeks || wk);
 }
 function lastDoneForDay(programme, dayKey) {
   const entries = (programme.log || []).filter((e) => e.dayKey === dayKey);
@@ -3809,6 +3960,207 @@ Object.entries(EXERCISES).forEach(([m, list]) => list.forEach((e) => {
   if (SHIPPED_MUSCLE_BY_ID[e.id] === undefined) SHIPPED_MUSCLE_BY_ID[e.id] = m;
 }));
 
+/* ---------------------------------------------------------------
+   HOW TAXING AN EXERCISE IS
+
+   Not the same thing as how many muscles it works, and the difference
+   matters. A push-up reaches four muscle groups and costs almost nothing; a
+   standing overhead press reaches two and costs a great deal. Coverage can be
+   read off the database. Demand cannot, so it is stated here.
+
+   These are the lifts you can only fit two or three of into one session
+   before the rest of it suffers — heavy axial loading, or a full bodyweight
+   moved through a long range. Two isolation lifts are in the list because
+   fatigue, not classification, is what the budget is rationing: a nordic curl
+   and a glute-ham raise cost more than most compounds do.
+--------------------------------------------------------------- */
+
+const HEAVY_EXERCISE_IDS = new Set([
+  // Named as most fatiguing in the priority table below.
+  "squat", "romanian-deadlift", "leg-press",
+  "pull-ups", "bent-over-row", "deadlift",
+  "dips",
+  // Not in the table, so judged here on the same basis. Note the table's
+  // verdict on the bench press stands: flat and incline pressing are ranked
+  // below dips and are not counted as fatiguing, so neither is in this list.
+  "good-morning", "glute-ham-raise", "nordic-curl",
+  "bulgarian-split-squat", "hip-thrust",
+  "overhead-press", "close-grip-bench", "farmers-carry",
+]);
+
+const DEMAND_HEAVY = 2;
+const DEMAND_COMPOUND = 1;
+const DEMAND_ISOLATION = 0;
+
+function exerciseDemand(ex) {
+  if (!ex) return DEMAND_ISOLATION;
+  if (HEAVY_EXERCISE_IDS.has(ex.id)) return DEMAND_HEAVY;
+  return ex.type === "compound" ? DEMAND_COMPOUND : DEMAND_ISOLATION;
+}
+
+function isHeavyExercise(ex) {
+  return exerciseDemand(ex) === DEMAND_HEAVY;
+}
+
+// Every muscle group an exercise trains, direct and indirect.
+function musclesHitBy(ex, muscle) {
+  const primary = muscle || ex.muscle || muscleOfExerciseId(ex.id);
+  const out = new Set(SECONDARY_MUSCLES[ex.id] || []);
+  if (primary) out.add(primary);
+  return out;
+}
+
+// EXERCISES[muscle] order doubles as the priority ranking the auto-picker
+// walks, so it should open with the most productive lift and end with the
+// least. Mostly it already did, but not everywhere: leg extensions sat above
+// the leg press, shrugs above the farmer's carry, lateral raises above the
+// upright row — fifteen isolation exercises ranked ahead of a compound in
+// their own list.
+//
+// This is a stable sort by demand, not a re-ranking. Order within a tier is
+// left exactly as it was, because that order was chosen deliberately and
+// encodes preferences no rule here knows about. Only the inversions move.
+//
+// A user who has reordered a muscle themselves has that saved under
+// "exercise-order" and it is applied after this, so their ranking still wins.
+Object.keys(EXERCISES).forEach((m) => {
+  EXERCISES[m] = EXERCISES[m]
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => exerciseDemand(b.e) - exerciseDemand(a.e) || a.i - b.i)
+    .map((x) => x.e);
+});
+
+/* ---------------------------------------------------------------
+   HOW MANY HEAVY LIFTS FIT IN ONE SESSION
+
+   Three, and a session with fewer exercises than that is all of them.
+
+   The cap does not scale with length, which is the opposite of what it looks
+   like it should do. A quarter of an hour is squat, pull-up and dips and then
+   you go home — nothing about being short of time makes a big lift the wrong
+   choice, it makes the accessories the wrong choice. Length decides how much
+   is added after the big lifts, not how many there are. Scaling the budget
+   down for short sessions produced exactly the wrong thing: fifteen minutes
+   came back as a squat and two isolation lifts.
+
+   Three is where it sits because that is the top row of the priority table —
+   the one heavy lift each in Legs, Back and Chest — and a fourth means a
+   second heavy lift for a muscle that has already had one.
+--------------------------------------------------------------- */
+
+const MAX_HEAVY_PER_SESSION = 3;
+
+function heavyBudgetFor(exerciseCount) {
+  return Math.max(1, Math.min(MAX_HEAVY_PER_SESSION, exerciseCount || 1));
+}
+
+/* ---------------------------------------------------------------
+   THE PRIORITY TABLE
+
+   A hand-written ranking: seven families, each listing its exercises best
+   first. It is the authority on what an auto-built workout reaches for.
+
+   Read it the way it is built — across, then down. Rank one of every family
+   in order is a whole-body session:
+
+       Squat, Pull-Up, Dips, Lateral Raise, Curl, Pushdown, Hanging Leg Raise
+
+   and a longer session carries on into rank two: RDL, Bent-Over Row, Incline
+   Press, Reverse Fly, Hammer Curl, Overhead Extension, Cable Crunch. Because
+   the families run largest to smallest, sweeping across them puts the big
+   lifts first and the small ones last without anything having to sort it,
+   and alternates the muscle worked at every step for free.
+
+   Choosing specific muscles — a Push day, or Train Ready Muscles finding
+   four muscles green — walks the same table with the families that do not
+   apply left out. The ranking does not change; only which rows are in play.
+
+   Exercises the table does not name (calves, shins, forearms, traps, glute
+   accessories) are not covered by it, and fall back to the per-muscle
+   ranking in EXERCISES the way everything did before.
+--------------------------------------------------------------- */
+
+const PRIORITY_FAMILIES = [
+  { name: "Legs", ranked: ["squat", "romanian-deadlift", "leg-press", "leg-curl", "leg-extension"] },
+  { name: "Back", ranked: ["pull-ups", "bent-over-row", "deadlift", "lat-pulldown", "chest-supported-row"] },
+  { name: "Chest", ranked: ["dips", "incline-press", "pec-deck", "bench-press", "push-up"] },
+  { name: "Shoulders", ranked: ["lateral-raise", "reverse-fly"] },
+  { name: "Biceps", ranked: ["cable-curl", "hammer-curl"] },
+  { name: "Triceps", ranked: ["pushdown", "overhead-extension"] },
+  { name: "Core", ranked: ["hanging-leg-raise", "cable-crunch"] },
+];
+
+const PRIORITY_MAX_RANK = Math.max(...PRIORITY_FAMILIES.map((f) => f.ranked.length));
+
+// Which muscle an entry in the table trains. Read live rather than written
+// down, so an exercise the user has moved to another muscle stays correct.
+function priorityMuscleOf(id) {
+  const ex = ALL_EXERCISES_BY_ID[id];
+  if (!ex) return null;
+  return ex.muscle || muscleOfExerciseId(id);
+}
+
+function priorityAvailable(id, targetMuscles, usedIds) {
+  const named = ALL_EXERCISES_BY_ID[id];
+  if (!named) return null;
+  const muscle = priorityMuscleOf(id);
+  if (!muscle || !targetMuscles.has(muscle)) return null;
+
+  // For a muscle the user has ranked themselves, the table still decides
+  // *when* that muscle comes up in the session — its place among the families
+  // is a training decision, not a preference — but their list decides which
+  // exercise fills the slot. Substituting rather than skipping matters: skip
+  // it and the muscle drops out of the workout altogether while the other
+  // families quietly take its slots.
+  if (MANUAL_ORDER_MUSCLES.has(muscle)) {
+    const own = visibleExercises(muscle).find((e) => !usedIds.has(e.id) && !PAUSED_EXERCISE_IDS.has(e.id));
+    return own ? { ...own, muscle } : null;
+  }
+
+  if (usedIds.has(id) || HIDDEN_EXERCISE_IDS.has(id) || PAUSED_EXERCISE_IDS.has(id)) return null;
+  return { ...named, muscle };
+}
+
+// Walks the table across-then-down and returns what it picked, in the order
+// it picked it. That order is the answer — it is not re-sorted afterwards,
+// because the table already puts the session in the right shape.
+//
+// perMuscleCap limits how many exercises a single muscle may contribute,
+// which is what the muscle-tap screen means by tapping Chest twice. Pass null
+// for no cap.
+//
+// randomize offsets each family's starting rank by one, so asking again gives
+// a different session without leaving the ranking — an RDL where the first
+// pass gave a squat.
+function buildByPriority(targetMuscles, perMuscleCap, exerciseCount, usedIds, plan, randomize) {
+  const target = new Set(targetMuscles);
+  const taken = {};
+  const out = [];
+  const offsets = PRIORITY_FAMILIES.map((f) => (randomize && f.ranked.length > 1 ? Math.floor(Math.random() * 2) : 0));
+
+  for (let step = 0; step < PRIORITY_MAX_RANK && out.length < exerciseCount; step++) {
+    for (let fi = 0; fi < PRIORITY_FAMILIES.length; fi++) {
+      if (out.length >= exerciseCount) break;
+      const fam = PRIORITY_FAMILIES[fi];
+      const rank = (step + offsets[fi]) % fam.ranked.length;
+      const id = fam.ranked[rank];
+      if (!id) continue;
+      const ex = priorityAvailable(id, target, usedIds);
+      if (!ex) continue;
+      const cap = perMuscleCap ? perMuscleCap[ex.muscle] || 0 : Infinity;
+      if ((taken[ex.muscle] || 0) >= cap) continue;
+      // The fatiguing lifts are rationed the same way here as everywhere else;
+      // over budget, the family's next entry gets the slot instead.
+      if (isHeavyExercise(ex) && !canTakeHeavy(plan)) continue;
+      recordPick(plan, ex.muscle, ex.pattern || ex.type, ex);
+      usedIds.add(ex.id);
+      taken[ex.muscle] = (taken[ex.muscle] || 0) + 1;
+      out.push(ex);
+    }
+  }
+  return out;
+}
+
 function slugify(name) {
   return name
     .toLowerCase()
@@ -3913,6 +4265,31 @@ function applyStoredOrder(muscle, orderedIds) {
   list.forEach((e) => (rank.has(e.id) ? known : unknown).push(e));
   known.sort((a, b) => rank.get(a.id) - rank.get(b.id));
   EXERCISES[muscle] = [...known, ...unknown];
+}
+
+// Muscles whose ranking the user has deliberately rearranged with the arrows
+// on the Exercise Database screen. Kept apart from "exercise-order" itself
+// because that key is also rewritten whenever an exercise is added, deleted
+// or edited — which is bookkeeping, not a preference, and must not be read as
+// one. Only a press of the up/down arrows lands a muscle in here.
+//
+// It exists because two things the app promises can disagree. The priority
+// table decides what an auto-built workout reaches for; the database screen
+// promises that reordering a muscle changes what gets suggested first. Where
+// someone has actually reordered a muscle, their ranking wins for it and the
+// table stands aside.
+const MANUAL_ORDER_MUSCLES = new Set();
+
+async function loadManualOrderMuscles() {
+  const saved = (await safeGet("exercise-order-manual")) || [];
+  saved.forEach((m) => MANUAL_ORDER_MUSCLES.add(m));
+  return saved;
+}
+
+async function markMuscleManuallyOrdered(muscle) {
+  if (!muscle || MANUAL_ORDER_MUSCLES.has(muscle)) return;
+  MANUAL_ORDER_MUSCLES.add(muscle);
+  await safeSet("exercise-order-manual", [...MANUAL_ORDER_MUSCLES]);
 }
 
 async function loadExerciseOrder() {
@@ -10491,7 +10868,7 @@ function FeatureListScreen({ onBack }) {
             The highlighted option when creating a programme. Answer three quick questions — experience level, session length, and any body part you want to prioritize — and Iron Log builds a split for you, shows rep-range and protein recommendations, then previews the exact programme before you commit. Decline it and you're dropped back into the normal builder to make your own.
           </FeatureItem>
           <FeatureItem name="Train Ready Muscles">
-            The muscle-readiness map on Home colours each muscle by how long it still needs: green once it is ready, amber inside the last day, red while more than a day remains. How long depends on the muscle and on how hard you trained it — the lower back needs four days after a session taken to failure and two and a half after one with reps left; side delts need a day and a half, or one. Muscles worked indirectly get their own shorter windows, so a hard bench leaves your chest red and your triceps somewhere behind it. Pick a duration and a strength/size goal and Iron Log builds a session from whatever is green.
+            The muscle-readiness map on Home colours each muscle by how long it still needs: green once it is ready, amber inside the last day, red while more than a day remains. How long depends on the muscle and on how hard you trained it — the lower back needs four days after a session taken to failure and two and a half after one with reps left; side delts need a day and a half, or one. Muscles worked indirectly get their own shorter windows, so a hard bench leaves your chest red and your triceps somewhere behind it. Pick how long you have and Iron Log builds a session from whatever is green.
           </FeatureItem>
           <FeatureItem name="Backup">
             Settings → Backup saves everything — history, programmes, settings, exercise order — to one JSON file in your Downloads, and names the exact path it wrote to. Restore puts it all back. Your data never leaves the phone otherwise, so this file is the only copy that survives losing it.
@@ -10720,6 +11097,7 @@ function ExerciseDatabaseScreen({ onBack }) {
     next.splice(direction < 0 ? target : target + 1, 0, all.find((e) => e.id === id));
     EXERCISES[m] = next;
     await saveMuscleOrder(m);
+    await markMuscleManuallyOrdered(m);
     refresh();
   }
 
@@ -10936,7 +11314,6 @@ function ExerciseDatabaseScreen({ onBack }) {
 
 function SuggestedScreen({ onBack, onBuild }) {
   const [duration, setDuration] = useState(null);
-  const [goal, setGoal] = useState(null);
   const [readiness, setReadiness] = useState({});
   const [loading, setLoading] = useState(true);
 
@@ -10967,11 +11344,11 @@ function SuggestedScreen({ onBack, onBuild }) {
     const sorted = Object.entries(readiness).sort((a, b) => b[1] - a[1]);
     let readyMuscles = sorted.filter(([, pct]) => pct >= 100).map(([m]) => m);
     if (readyMuscles.length < 3) readyMuscles = sorted.slice(0, 6).map(([m]) => m);
-    const list = buildSuggestedWorkout(readyMuscles, exerciseCount, goal);
+    const list = buildSuggestedWorkout(readyMuscles, exerciseCount);
     onBuild(list);
   }
 
-  const ready = duration && goal;
+  const ready = !!duration;
 
   return (
     <div style={{ paddingBottom: 100 }}>
@@ -11004,32 +11381,6 @@ function SuggestedScreen({ onBack, onBuild }) {
             </button>
           ))}
         </div>
-
-        <div style={{ color: COLORS.textDim, fontSize: 11, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>
-          Strength or size?
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {GOAL_OPTIONS.map((g) => (
-            <button
-              key={g.value}
-              onClick={() => setGoal(g.value)}
-              style={{
-                padding: "14px 16px",
-                borderRadius: 12,
-                border: `1px solid ${goal === g.value ? COLORS.accent : COLORS.line}`,
-                background: goal === g.value ? COLORS.accent : COLORS.surface,
-                textAlign: "left",
-              }}
-            >
-              <div style={{ color: goal === g.value ? "#1A1200" : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 15, textTransform: "uppercase" }}>
-                {g.label}
-              </div>
-              <div style={{ color: goal === g.value ? "#1A1200" : COLORS.textDim, fontSize: 12, marginTop: 2, opacity: goal === g.value ? 0.8 : 1 }}>
-                {g.desc}
-              </div>
-            </button>
-          ))}
-        </div>
       </div>
 
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: 16, background: `linear-gradient(to top, ${COLORS.bg} 60%, transparent)` }}>
@@ -11049,7 +11400,7 @@ function SuggestedScreen({ onBack, onBuild }) {
             textTransform: "uppercase",
           }}
         >
-          {ready ? "Build Workout" : "Pick a duration and goal"}
+          {ready ? "Build Workout" : "Pick a duration"}
         </button>
       </div>
     </div>
@@ -11784,6 +12135,7 @@ export default function App() {
       await loadExerciseEdits();
       await loadPausedExercises();
       await loadHiddenExercises();
+      await loadManualOrderMuscles();
       // Must run after custom exercises are registered, so a saved order
       // that includes them positions them correctly rather than appending.
       await loadExerciseOrder();
