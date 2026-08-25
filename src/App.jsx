@@ -736,6 +736,29 @@ const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
   {
+    version: "1.15.0",
+    date: "August 2026",
+    headline: "Fix an exercise instead of replacing it.",
+    items: [
+      {
+        title: "Edit anything in the database",
+        body: "Tap the pencil beside any exercise \u2014 yours or one of Iron Log\u2019s \u2014 to change its name, its muscle, whether it counts as a compound, the muscles it also hits, and its cue. Before this the only way to correct something was to delete it and add it back, which threw away every set you had ever logged against it.",
+      },
+      {
+        title: "Your history comes with it",
+        body: "The exercise keeps its identity, so your logged sets, records and charts stay attached. Rename it or move it to another muscle and every past workout is updated to match, so your history does not end up half under the old name.",
+      },
+      {
+        title: "Adding an indirect muscle counts backwards",
+        body: "Tick a muscle an exercise also hits and sessions you logged months ago start counting toward it straight away, on the readiness map and in weekly volume. Nothing needs re-entering.",
+      },
+      {
+        title: "Changed your mind",
+        body: "An edited built-in is marked Edited in the list, and can be put back to Iron Log\u2019s version at any time \u2014 which takes your history back with it.",
+      },
+    ],
+  },
+  {
     version: "1.14.0",
     date: "August 2026",
     headline: "Dips and pull-ups know the difference between help and load.",
@@ -3769,6 +3792,23 @@ Object.values(EXERCISES).forEach((list) => list.forEach((e) => {
   if (!ALL_EXERCISES_BY_ID[e.id]) ALL_EXERCISES_BY_ID[e.id] = e;
 }));
 
+// What the app shipped with, frozen before any stored edit is applied. A
+// built-in exercise lives in a module constant, so an edit to one is stored
+// as an overlay rather than a rewrite — which means "revert to default" needs
+// the originals still to be here to revert to. Nothing below ever mutates an
+// exercise object in place for this reason: an edit builds a new object and
+// swaps it in, leaving the shipped one untouched for the snapshot to hold.
+const SHIPPED_EXERCISE_BY_ID = { ...ALL_EXERCISES_BY_ID };
+const SHIPPED_SECONDARY_MUSCLES = { ...SECONDARY_MUSCLES };
+// An exercise object carries no muscle of its own — which bucket of EXERCISES
+// it sits in is what says where it belongs, which is why muscleOfExerciseId
+// exists at all. That works right up until an edit moves one, at which point
+// the shipped answer is no longer discoverable by looking. So record it now.
+const SHIPPED_MUSCLE_BY_ID = {};
+Object.entries(EXERCISES).forEach(([m, list]) => list.forEach((e) => {
+  if (SHIPPED_MUSCLE_BY_ID[e.id] === undefined) SHIPPED_MUSCLE_BY_ID[e.id] = m;
+}));
+
 function slugify(name) {
   return name
     .toLowerCase()
@@ -3885,6 +3925,222 @@ async function saveMuscleOrder(muscle) {
   const saved = (await safeGet("exercise-order")) || {};
   saved[muscle] = (EXERCISES[muscle] || []).map((e) => e.id);
   await safeSet("exercise-order", saved);
+}
+
+/* ---------------------------------------------------------------
+   EDITING AN EXERCISE
+
+   Before this, correcting an exercise meant deleting it and adding it
+   back, which orphaned every set ever logged against it: history, PBs and
+   charts all key off the id, and a re-add mints a new one.
+
+   So an edit keeps the id and changes only the description hanging off it.
+   Custom exercises are rewritten where they are stored. Built-ins cannot
+   be — they live in a module constant — so their changes are kept as a
+   sparse overlay under "exercise-edits" and reapplied at boot, which also
+   makes reverting to the shipped values a matter of dropping the entry.
+
+   Most of an edit needs nothing else done. Indirect muscles, the implement
+   list, the cue and the type are all read live from the database at the
+   point of use, so changing them applies to sessions logged years ago with
+   no rewrite at all — add Traps to an exercise and last month's rows start
+   counting toward them immediately.
+
+   Name and primary muscle are the exceptions. Both are copied into each
+   session as it is saved, so a session records what the exercise was called
+   on the day. Those copies are what rewriteExerciseIdentity goes and fixes.
+--------------------------------------------------------------- */
+
+const EXERCISE_EDITS = {};
+
+// The fields an edit may change. The id is deliberately not among them: it
+// is the identity every stored record hangs off, and changing it would be
+// the delete-and-re-add this feature exists to avoid.
+const EDITABLE_FIELDS = ["name", "muscle", "type", "cue", "secondary"];
+
+// Neither of the two fields an edit cares most about is actually on the
+// exercise object. A built-in's indirect muscles live in SECONDARY_MUSCLES
+// keyed by id, and its primary muscle is only implied by which EXERCISES
+// bucket holds it — the shipped objects carry no muscle field at all.
+// Read either one straight off the object and you get undefined, and saving
+// that back would strip a hammer curl's forearms and file it under whatever
+// muscle happened to be first in the list. So everything that reads or
+// compares an exercise for editing goes through here, which resolves both
+// and makes the two storage shapes look like one.
+function editableForm(ex, secondaryTable, muscleTable) {
+  if (!ex) return null;
+  const sec = secondaryTable || SECONDARY_MUSCLES;
+  const mus = muscleTable || null;
+  return {
+    ...ex,
+    muscle: ex.muscle || (mus ? mus[ex.id] : muscleOfExerciseId(ex.id)) || null,
+    secondary: ex.secondary || sec[ex.id] || [],
+  };
+}
+
+function patchOf(base, next) {
+  const patch = {};
+  for (const f of EDITABLE_FIELDS) {
+    const a = base[f];
+    const b = next[f];
+    const norm = (v) => JSON.stringify(v === undefined || v === null || (Array.isArray(v) && !v.length) ? null : v);
+    if (norm(a) !== norm(b)) patch[f] = b;
+  }
+  return patch;
+}
+
+// Rebuilds the exercise from a patch and swaps the new object into both
+// EXERCISES[muscle] and the id lookup, moving it between muscle buckets if
+// the primary muscle changed. In memory only — the caller persists.
+function applyExercisePatch(id, patch) {
+  const current = ALL_EXERCISES_BY_ID[id];
+  if (!current) return null;
+  const from = muscleOfExerciseId(id);
+  const wasAt = from ? (EXERCISES[from] || []).findIndex((e) => e.id === id) : -1;
+  const next = { ...current };
+  for (const f of EDITABLE_FIELDS) {
+    if (!(f in patch)) continue;
+    if (patch[f] === undefined || patch[f] === null || (Array.isArray(patch[f]) && !patch[f].length)) delete next[f];
+    else next[f] = patch[f];
+  }
+  const to = next.muscle || from;
+  next.muscle = to;
+
+  if (from && EXERCISES[from]) EXERCISES[from] = EXERCISES[from].filter((e) => e.id !== id);
+  if (!EXERCISES[to]) EXERCISES[to] = [];
+  // Land it back where it sat rather than at the bottom, so an edit that
+  // does not move it leaves the priority ranking alone. A genuine move to
+  // another muscle goes on the end of that muscle's list, which is where a
+  // newly added exercise goes too.
+  const at = from === to && wasAt >= 0 ? Math.min(wasAt, EXERCISES[to].length) : EXERCISES[to].length;
+  EXERCISES[to].splice(at, 0, next);
+  ALL_EXERCISES_BY_ID[id] = next;
+
+  // Clearing every secondary has to delete the key, not write an empty
+  // array — readiness and volume both test the array's contents, and a
+  // built-in reverting to its shipped value needs the key gone first.
+  const sec = (next.secondary || []).filter((m) => m !== to);
+  if (sec.length) SECONDARY_MUSCLES[id] = sec;
+  else delete SECONDARY_MUSCLES[id];
+
+  return { from, to, exercise: next };
+}
+
+// Rewrites the copies of an exercise's name and muscle that were written
+// into stored records at the time they were saved. Everything else about an
+// exercise is looked up live, so this is the whole of what an edit has to
+// chase down. Each key is only written if it actually changed.
+async function rewriteExerciseIdentity(id, name, muscle) {
+  const fixList = (list) =>
+    Array.isArray(list) ? list.map((e) => (e && e.id === id ? { ...e, ...(e.name !== undefined ? { name } : {}), ...(e.muscle !== undefined ? { muscle } : {}) } : e)) : list;
+  const changed = (before, after) => JSON.stringify(before) !== JSON.stringify(after);
+
+  const history = await safeGet("workout-history");
+  if (Array.isArray(history)) {
+    const next = history.map((s) => ({ ...s, exercises: fixList(s.exercises) }));
+    if (changed(history, next)) await safeSet("workout-history", next);
+  }
+
+  const snapshot = await safeGet("in-progress-workout");
+  if (snapshot && Array.isArray(snapshot.exercises)) {
+    const next = { ...snapshot, exercises: fixList(snapshot.exercises) };
+    if (changed(snapshot, next)) await safeSet("in-progress-workout", next);
+  }
+
+  const templates = await safeGet("templates");
+  if (Array.isArray(templates)) {
+    const next = templates.map((t) => ({ ...t, exercises: fixList(t.exercises) }));
+    if (changed(templates, next)) await safeSet("templates", next);
+  }
+
+  const fixProgramme = (p) => (p && Array.isArray(p.days) ? { ...p, days: p.days.map((d) => ({ ...d, exercises: fixList(d.exercises) })) } : p);
+  const active = await safeGet("active-programme");
+  if (active) {
+    const next = fixProgramme(active);
+    if (changed(active, next)) await safeSet("active-programme", next);
+  }
+  const finished = await safeGet("finished-programmes");
+  if (Array.isArray(finished)) {
+    const next = finished.map(fixProgramme);
+    if (changed(finished, next)) await safeSet("finished-programmes", next);
+  }
+
+  // A personal best carries the name it was set under, so a rename that
+  // missed it would leave the PB screen disagreeing with everything else.
+  const pb = await safeGet(`pb:${id}`);
+  if (pb && pb.name !== undefined && pb.name !== name) await safeSet(`pb:${id}`, { ...pb, name });
+}
+
+// Keeps the saved priority ranking honest after an edit: the id leaves the
+// muscle it came from and joins the one it moved to.
+async function reorderAfterMove(from, to) {
+  if (from) await saveMuscleOrder(from);
+  if (to && to !== from) await saveMuscleOrder(to);
+}
+
+async function saveExerciseEdit(id, next) {
+  const current = ALL_EXERCISES_BY_ID[id];
+  if (!current) return;
+  const patch = patchOf(editableForm(current), next);
+  if (!Object.keys(patch).length) return;
+  const result = applyExercisePatch(id, patch);
+  if (!result) return;
+
+  if (current.custom) {
+    const saved = (await safeGet("custom-exercises")) || [];
+    await safeSet("custom-exercises", saved.map((e) => (e.id === id ? { ...result.exercise } : e)));
+  } else {
+    // Overlay, not a rewrite. Accumulated against the shipped values rather
+    // than the current ones, so a second edit does not depend on the first
+    // still being applied when it is replayed at boot.
+    EXERCISE_EDITS[id] = patchOf(
+      editableForm(SHIPPED_EXERCISE_BY_ID[id] || current, SHIPPED_SECONDARY_MUSCLES, SHIPPED_MUSCLE_BY_ID),
+      editableForm(result.exercise),
+    );
+    if (!Object.keys(EXERCISE_EDITS[id]).length) delete EXERCISE_EDITS[id];
+    await safeSet("exercise-edits", EXERCISE_EDITS);
+  }
+
+  await reorderAfterMove(result.from, result.to);
+  await rewriteExerciseIdentity(id, result.exercise.name, result.exercise.muscle);
+}
+
+// Built-ins only. Puts the shipped name, muscle, type, cue and indirect
+// muscles back, and takes the history with it — a revert is just an edit
+// whose target happens to be what the app came with.
+async function revertExerciseEdit(id) {
+  const shipped = SHIPPED_EXERCISE_BY_ID[id];
+  if (!shipped) return;
+  delete EXERCISE_EDITS[id];
+  await safeSet("exercise-edits", EXERCISE_EDITS);
+  const shippedMuscle = SHIPPED_MUSCLE_BY_ID[id] || muscleOfExerciseId(id);
+  const result = applyExercisePatch(id, {
+    name: shipped.name,
+    muscle: shippedMuscle,
+    type: shipped.type,
+    cue: shipped.cue,
+    secondary: SHIPPED_SECONDARY_MUSCLES[id] || null,
+  });
+  if (!result) return;
+  await reorderAfterMove(result.from, result.to);
+  await rewriteExerciseIdentity(id, shipped.name, shippedMuscle);
+}
+
+function isEdited(id) {
+  return Object.prototype.hasOwnProperty.call(EXERCISE_EDITS, id);
+}
+
+// Replays stored edits into the live database. Runs after custom exercises
+// are registered, so an edit to one of those is applied to the entry it
+// belongs to rather than to nothing.
+async function loadExerciseEdits() {
+  const saved = (await safeGet("exercise-edits")) || {};
+  Object.entries(saved).forEach(([id, patch]) => {
+    if (!ALL_EXERCISES_BY_ID[id] || !patch || typeof patch !== "object") return;
+    EXERCISE_EDITS[id] = patch;
+    applyExercisePatch(id, patch);
+  });
+  return EXERCISE_EDITS;
 }
 
 // Custom exercises are the only ones that can be deleted outright, since
@@ -4350,17 +4606,27 @@ function ExerciseSearchPicker({ excludeIds, onAdd, surface, autoFocus, maxHeight
    used both from the muscle-selection page and mid-workout.
 --------------------------------------------------------------- */
 
-function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel }) {
-  const [name, setName] = useState("");
-  const [muscle, setMuscle] = useState(defaultMuscle || muscles[0]);
-  const [type, setType] = useState("compound");
-  const [cue, setCue] = useState("");
-  const [secondary, setSecondary] = useState([]);
+// Doubles as the edit form. Passed an `initial` exercise it opens filled in
+// and keeps that exercise's id on save, which is the whole point: the id is
+// what every logged set, PB and chart hangs off, so editing must not mint a
+// new one the way adding does.
+function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel, initial }) {
+  const editing = !!initial;
+  const [name, setName] = useState(initial ? initial.name : "");
+  const [muscle, setMuscle] = useState((initial && initial.muscle) || defaultMuscle || muscles[0]);
+  const [type, setType] = useState((initial && initial.type) || "compound");
+  const [cue, setCue] = useState((initial && initial.cue) || "");
+  const [secondary, setSecondary] = useState((initial && initial.secondary) || []);
 
-  // Only compounds carry indirect work — that is what makes them compound.
-  // Anything picked before switching to isolation is dropped rather than
-  // kept invisibly, so what you see on screen is what gets saved.
-  const wantsSecondary = type === "compound";
+  // When adding, only compounds are asked for indirect work — that is what
+  // makes them compound — and anything picked before switching to isolation
+  // is dropped rather than kept invisibly, so what you see is what is saved.
+  //
+  // Editing always asks, whatever the type. Seventeen of the shipped
+  // isolation exercises do carry indirect work: a hammer curl reaches the
+  // forearms, a leg curl the calves. Hiding the picker for those would mean
+  // opening one and pressing save quietly deleted what it hits.
+  const wantsSecondary = editing || type === "compound";
   // Offer whatever the caller considers a real muscle group, minus the one
   // already chosen as primary. Not MUSCLE_GROUPS, which is keyed off
   // EXERCISES and therefore includes "Mobility" — a category with no
@@ -4374,15 +4640,21 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel }) {
 
   function handleSave() {
     if (!name.trim()) return;
-    const baseId = slugify(name);
-    let id = baseId;
-    let n = 2;
-    while (ALL_EXERCISES_BY_ID[id]) {
-      id = `${baseId}-${n}`;
-      n += 1;
+    let id;
+    if (editing) {
+      id = initial.id;
+    } else {
+      const baseId = slugify(name);
+      id = baseId;
+      let n = 2;
+      while (ALL_EXERCISES_BY_ID[id]) {
+        id = `${baseId}-${n}`;
+        n += 1;
+      }
     }
-    const ex = { id, name: name.trim(), type, cue: cue.trim() || "Control the weight through a full range of motion.", muscle };
+    const ex = { ...(editing ? initial : {}), id, name: name.trim(), type, cue: cue.trim() || "Control the weight through a full range of motion.", muscle };
     if (chosenSecondary.length) ex.secondary = chosenSecondary;
+    else delete ex.secondary;
     onSave(ex);
   }
 
@@ -4400,8 +4672,13 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel }) {
   return (
     <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.accent}`, borderRadius: 14, padding: 16, marginBottom: 12 }}>
       <div style={{ color: COLORS.accent, fontFamily: "'Oswald', sans-serif", fontSize: 13, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>
-        New Exercise
+        {editing ? "Edit Exercise" : "New Exercise"}
       </div>
+      {editing && (
+        <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45, marginBottom: 10 }}>
+          Your logged sets stay attached — this changes the exercise, not your history. Renaming it or moving it to another muscle updates every past workout to match.
+        </div>
+      )}
       <input autoFocus type="text" placeholder="Exercise name" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
       <select value={muscle} onChange={(e) => setMuscle(e.target.value)} style={{ ...inputStyle, appearance: "auto" }}>
         {muscles.map((m) => (
@@ -4473,7 +4750,7 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel }) {
           disabled={!name.trim()}
           style={{ flex: 1, background: name.trim() ? COLORS.accent : COLORS.surfaceRaised, color: name.trim() ? "#1A1200" : COLORS.textDim, border: "none", borderRadius: 8, padding: "10px 0", fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase" }}
         >
-          Add Exercise
+          {editing ? "Save Changes" : "Add Exercise"}
         </button>
         <button
           onClick={onCancel}
@@ -10258,6 +10535,9 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           <FeatureItem name="Exercise Database">
             From the Home screen: browse every exercise by body part. Reorder anything — the order is the priority the app uses when it picks exercises for you, so moving cable pushdowns to the top means you get them first. Remove exercises you can't or won't do (they vanish from every picker, and you can restore them any time), and add your own.
           </FeatureItem>
+          <FeatureItem name="Edit any exercise">
+            Tap the pencil beside anything in the Exercise Database — yours or one of Iron Log's — to change its name, its muscle, its type, the muscles it also hits, or its cue. The exercise keeps its identity, so every set you have logged against it stays attached; renaming it or moving it to another muscle updates your past workouts to match. Adding an indirect muscle counts backwards too, so old sessions start feeding the readiness map and weekly volume for it immediately. An edited built-in is marked Edited and can be put back to Iron Log's version whenever you like.
+          </FeatureItem>
           <FeatureItem name="Custom exercises (Advanced Mode)">
             Tap "+ New" on any exercise picker — or use the Exercise Database screen — to add your own exercise. It's saved and reusable everywhere afterward.
           </FeatureItem>
@@ -10383,7 +10663,7 @@ One entry per movement. A bench press is a bench press whether it is loaded with
    own.
 --------------------------------------------------------------- */
 
-function ExerciseRowControls({ onUp, onDown, canUp, canDown, onRemove, removed, onRestore }) {
+function ExerciseRowControls({ onUp, onDown, canUp, canDown, onEdit, onRemove, removed, onRestore }) {
   const box = (enabled) => ({
     width: 30,
     height: 30,
@@ -10407,6 +10687,7 @@ function ExerciseRowControls({ onUp, onDown, canUp, canDown, onRemove, removed, 
     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
       <button onClick={canUp ? onUp : undefined} disabled={!canUp} style={box(canUp)} title="Move up"><ChevronUp size={15} /></button>
       <button onClick={canDown ? onDown : undefined} disabled={!canDown} style={box(canDown)} title="Move down"><ChevronDown size={15} /></button>
+      <button onClick={onEdit} style={box(true)} title="Edit"><Pencil size={14} /></button>
       <button onClick={onRemove} style={{ ...box(true), color: COLORS.bad }} title="Remove"><Trash2 size={14} /></button>
     </div>
   );
@@ -10417,6 +10698,7 @@ function ExerciseDatabaseScreen({ onBack }) {
   const [query, setQuery] = useState("");
   const [showRemoved, setShowRemoved] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [, forceRefresh] = useState(0);
   const refresh = () => forceRefresh((n) => n + 1);
 
@@ -10460,6 +10742,23 @@ function ExerciseDatabaseScreen({ onBack }) {
     refresh();
   }
 
+  async function handleSaveEdit(ex) {
+    // The muscle can be changed in the form, so the row may be leaving the
+    // list that is currently on screen. Follow it rather than dropping the
+    // user on a list their exercise just left.
+    const movedTo = ex.muscle;
+    await saveExerciseEdit(ex.id, ex);
+    setEditingId(null);
+    if (movedTo !== muscle) setMuscle(movedTo);
+    refresh();
+  }
+
+  async function handleRevert(id) {
+    await revertExerciseEdit(id);
+    setEditingId(null);
+    refresh();
+  }
+
   const rowStyle = {
     display: "flex",
     alignItems: "center",
@@ -10488,7 +10787,7 @@ function ExerciseDatabaseScreen({ onBack }) {
       <div style={{ paddingBottom: 40 }}>
         <TopBar title="Exercise Database" onBack={onBack} />
         <div style={{ padding: "0 20px 16px", color: COLORS.textDim, fontSize: 13, lineHeight: 1.5 }}>
-          Every exercise Iron Log knows, by body part. Reorder them to change which ones the app suggests first, remove the ones you can't or won't do, and add your own.
+          Every exercise Iron Log knows, by body part. Reorder them to change which ones the app suggests first, edit any of them, remove the ones you can’t or won’t do, and add your own.
         </div>
         <div style={{ padding: "0 20px 12px" }}>
           <input
@@ -10552,7 +10851,7 @@ function ExerciseDatabaseScreen({ onBack }) {
     <div style={{ paddingBottom: 40 }}>
       <TopBar title={muscle} onBack={() => setMuscle(null)} />
       <div style={{ padding: "0 20px 14px", color: COLORS.textDim, fontSize: 12.5 }}>
-        Every variation, in one ranking. Top of the list gets suggested first.
+        Every variation, in one ranking. Top of the list gets suggested first. Tap the pencil to change a name, its muscles or its cue — your logged sets stay attached.
       </div>
 
       {adding && (
@@ -10569,17 +10868,45 @@ function ExerciseDatabaseScreen({ onBack }) {
       <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
         {shown.map((ex, i) => {
           const removed = HIDDEN_EXERCISE_IDS.has(ex.id);
+          if (editingId === ex.id) {
+            return (
+              <div key={ex.id}>
+                <NewExerciseForm
+                  muscles={muscles}
+                  initial={editableForm(ex)}
+                  onSave={handleSaveEdit}
+                  onCancel={() => setEditingId(null)}
+                />
+                {!ex.custom && isEdited(ex.id) && (
+                  <button
+                    onClick={() => handleRevert(ex.id)}
+                    style={{ display: "block", margin: "-4px 0 12px", background: "transparent", border: "none", color: COLORS.textDim, fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
+                  >
+                    <RotateCcw size={12} style={{ verticalAlign: "-2px", marginRight: 5 }} />
+                    Revert to Iron Log&rsquo;s version
+                  </button>
+                )}
+              </div>
+            );
+          }
+          const edited = !ex.custom && isEdited(ex.id);
           return (
             <div key={ex.id} style={{ ...rowStyle, opacity: removed ? 0.5 : 1 }}>
               <span style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
                 <span style={{ color: COLORS.textDim, fontSize: 11, fontFamily: "'JetBrains Mono', monospace", flexShrink: 0 }}>{i + 1}</span>
                 <span style={{ color: COLORS.text, fontSize: 13, minWidth: 0 }}>{ex.name}</span>
+                {(ex.custom || edited) && (
+                  <span style={{ color: COLORS.textDim, fontSize: 9.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1, textTransform: "uppercase", flexShrink: 0 }}>
+                    {ex.custom ? "Yours" : "Edited"}
+                  </span>
+                )}
               </span>
               <ExerciseRowControls
                 canUp={i > 0}
                 canDown={i < shown.length - 1}
                 onUp={() => moveExercise(muscle, shownIds, ex.id, -1)}
                 onDown={() => moveExercise(muscle, shownIds, ex.id, 1)}
+                onEdit={() => { setAdding(false); setEditingId(ex.id); }}
                 onRemove={() => remove(ex, muscle)}
                 removed={removed}
                 onRestore={() => restore(ex)}
@@ -10594,7 +10921,7 @@ function ExerciseDatabaseScreen({ onBack }) {
           {showRemoved ? "Hide removed" : "Show removed"}
         </button>
         {!adding && (
-          <button onClick={() => setAdding(true)} style={{ display: "flex", alignItems: "center", gap: 5, color: COLORS.accent, background: "transparent", border: "none", fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <button onClick={() => { setEditingId(null); setAdding(true); }} style={{ display: "flex", alignItems: "center", gap: 5, color: COLORS.accent, background: "transparent", border: "none", fontSize: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}>
             <Plus size={13} /> Add Exercise
           </button>
         )}
@@ -11451,6 +11778,10 @@ export default function App() {
     async function init() {
       await runMigrations();
       await loadCustomExercises();
+      // After the customs, so an edit to one lands on the entry it belongs
+      // to; before the order, so a moved exercise is ranked under the muscle
+      // it moved to rather than the one it left.
+      await loadExerciseEdits();
       await loadPausedExercises();
       await loadHiddenExercises();
       // Must run after custom exercises are registered, so a saved order
