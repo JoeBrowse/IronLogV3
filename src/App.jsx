@@ -139,6 +139,40 @@ const EXERCISES = {
    implement there might be a barbell across the shoulders.
 --------------------------------------------------------------- */
 
+/* Extra search terms per exercise, so looking for a movement by the name you
+   actually call it finds it.
+
+   Search matches on the display name alone, which means a British lifter
+   typing "press up" gets nothing at all — the entry is called Push-Up. That
+   reads as a missing exercise rather than a vocabulary mismatch, and the
+   obvious response is to add a duplicate, which then splits the history for
+   one movement across two ids. Aliases instead: one entry, several names. */
+const EXERCISE_ALIASES = {
+  "push-up": ["press-up", "press ups", "pressup", "pushup"],
+  "pull-ups": ["pullup", "chin up", "chinup"],
+  "overhead-press": ["ohp", "military press", "shoulder press", "strict press"],
+  "romanian-deadlift": ["rdl", "stiff leg deadlift"],
+  "lateral-raise": ["side raise", "lat raise", "side lateral"],
+  "leg-press": ["legpress"],
+  "bent-over-row": ["barbell row", "bent over row", "pendlay row"],
+  "lat-pulldown": ["pulldown", "lat pull down"],
+  "standing-calf-raise": ["calf raise", "calves"],
+  "seated-calf-raise": ["calf raise", "calves", "soleus"],
+  "hip-thrust": ["glute bridge"],
+  "skull-crusher": ["lying tricep extension", "french press"],
+  "pushdown": ["tricep pushdown", "cable pushdown"],
+  "face-pull": ["facepull", "rear delt pull"],
+};
+
+// True when a query matches the exercise's name or any of its aliases. One
+// place, so every search box behaves the same way.
+function exerciseMatchesQuery(ex, q) {
+  const query = String(q || "").trim().toLowerCase();
+  if (!query) return true;
+  if (ex.name.toLowerCase().includes(query)) return true;
+  return (EXERCISE_ALIASES[ex.id] || []).some((a) => a.includes(query));
+}
+
 const SECONDARY_MUSCLES = {
   "bench-press": ["Triceps", "Front Delts"],
   "incline-press": ["Triceps", "Front Delts"],
@@ -201,12 +235,97 @@ const SECONDARY_MUSCLES = {
    method in the source table.
 --------------------------------------------------------------- */
 
+/* CALISTHENICS — one movement, three ways to load it.
+
+   A dip done on the assist machine, unloaded, and with a plate hanging off
+   you is the same movement at three different loads. Treating those as
+   three exercises splits one progression into three graphs that each look
+   flat; treating the load as a choice keeps the history in one place and
+   makes the progression visible.
+
+   The three are only offered where all three are genuinely how people load
+   that movement — there is an assist machine or a band for it, and there is
+   somewhere to hang a plate. Bench dips and hanging leg raises take weight
+   but nobody assists them, so they are not in here. */
+const CALISTHENIC_LOADINGS = ["Bodyweight", "Assisted", "Weighted"];
+const CALISTHENIC_IDS = new Set(["dips", "pull-ups", "push-up", "nordic-curl"]);
+
+function isCalisthenic(id) {
+  return CALISTHENIC_IDS.has(id);
+}
+
+/* Which of the three a logged set was, including for sessions recorded
+   before the choice existed. Rather than migrating that history, the
+   loading is inferred where it is missing: a weight on a bodyweight
+   movement could only ever have meant added weight, and no weight could
+   only have meant unloaded. That is right for every old row and needs no
+   schema change. */
+function loadingOf(exId, method, weight) {
+  if (!isCalisthenic(exId)) return null;
+  if (CALISTHENIC_LOADINGS.includes(method)) return method;
+  const w = parseFloat(weight);
+  return Number.isFinite(w) && w > 0 ? "Weighted" : "Bodyweight";
+}
+
+/* Bodyweight in the unit the app is currently logging in.
+
+   Set weights are stored as bare numbers in whatever settings.weightUnit
+   was at the time, while the bodyweight record carries its own unit — so
+   the two have to be reconciled before they can be added together. */
+function bodyweightIn(unit, record) {
+  if (!record || !record.value) return null;
+  const v = Number(record.value);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  if (!record.unit || record.unit === unit) return v;
+  return record.unit === "lb" ? v * 0.453592 : v / 0.453592;
+}
+
+/* What the lifter actually moved, which is the only number a progression
+   chart can honestly plot for these.
+
+   An assisted pull-up at 30kg of assistance is not "30kg" — it is bodyweight
+   minus 30, and getting stronger means that number going UP while the
+   assistance comes down. Plotting the raw entry would show a beginner's
+   progress running backwards. */
+function effectiveLoad(exId, method, weight, bodyweight) {
+  const w = parseFloat(weight);
+  if (!isCalisthenic(exId)) return Number.isFinite(w) ? w : null;
+  if (!bodyweight) return null;
+  const extra = Number.isFinite(w) ? Math.abs(w) : 0;
+  const loading = loadingOf(exId, method, weight);
+  if (loading === "Assisted") return Math.max(0, bodyweight - extra);
+  if (loading === "Weighted") return bodyweight + extra;
+  return bodyweight;
+}
+
+/* The bodyweight in force on a given date, from the weigh-in history.
+
+   Today's figure is the wrong one to use for a session logged a year ago:
+   a chart of pull-ups would then shift its whole history every time the
+   scale moved, which is the opposite of what a progress chart is for.
+   Before the first weigh-in, the earliest reading is the closest thing to
+   the truth available. */
+function bodyweightOnOrBefore(dateStr, history, current, unit) {
+  const list = (history || [])
+    .filter((h) => h && h.date && h.value)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  let chosen = null;
+  for (const h of list) {
+    if (h.date <= dateStr) chosen = h;
+    else break;
+  }
+  return bodyweightIn(unit, chosen || list[0] || current);
+}
+
 const EXERCISE_METHODS = {
   "bench-press": ["Barbell", "Dumbbell", "Smith Machine", "Machine"],
   // Dips are one movement done three ways, so how you load them is a
   // choice on the exercise rather than three exercises. Generated days
   // therefore always programme "Dips" and leave the rest to you.
-  "dips": ["Bodyweight", "Assisted", "Weighted"],
+  "dips": CALISTHENIC_LOADINGS,
+  "pull-ups": CALISTHENIC_LOADINGS,
+  "push-up": CALISTHENIC_LOADINGS,
+  "nordic-curl": CALISTHENIC_LOADINGS,
   "incline-press": ["Dumbbell", "Barbell", "Smith Machine", "Machine"],
   "bent-over-row": ["Barbell", "Dumbbell", "Smith Machine"],
   "chest-supported-row": ["Machine", "Dumbbell"],
@@ -616,6 +735,44 @@ const APP_VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0
 const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
+  {
+    version: "1.14.0",
+    date: "August 2026",
+    headline: "Dips and pull-ups know the difference between help and load.",
+    items: [
+      {
+        title: "One button for how you are loading it",
+        body: "Dips, pull-ups, push-ups and nordic curls now have a single button on the card: bodyweight, assisted, or weighted. Bodyweight asks for no number at all. Assisted asks how much help, weighted asks what you added. Changing it clears the weights rather than reinterpreting them, because assistance and added weight are opposite quantities.",
+      },
+      {
+        title: "It remembers what you used",
+        body: "The first time you touch the weight box it offers the figure from your last session at that same loading \u2014 the assisted number when you are assisted, the weighted one when you are weighted. Tap to reuse it across every set, or enter a new one.",
+      },
+      {
+        title: "Progression that reads the right way round",
+        body: "Charts plot what you actually moved: bodyweight minus the assistance, or bodyweight plus the belt. Going from 40kg of help to 20kg used to look like your numbers halving. It now reads as the progress it is. Add your bodyweight in Personal Info to switch this on \u2014 without a weigh-in there is no honest number to draw, so nothing is invented.",
+      },
+    ],
+  },
+  {
+    version: "1.13.0",
+    date: "August 2026",
+    headline: "Find any exercise, and tell Iron Log what your own ones work.",
+    items: [
+      {
+        title: "The database has a search box",
+        body: "It only listed exercises by body part before, which is no help if you do not already know where something was filed. There is a search box on the front of it now.",
+      },
+      {
+        title: "It knows what you call things",
+        body: "Search matches common alternative names as well as the one on the entry. Press-up finds Push-Up, OHP finds Overhead Press, RDL finds Romanian Deadlift, bent over row finds Bent-Over Row.",
+      },
+      {
+        title: "Your own compounds can name their indirect work",
+        body: "Adding a compound now offers a list of muscles it also hits. They pick up partial fatigue on the readiness map and half a set each in weekly volume \u2014 the same treatment the built-in exercises get. Before this, a custom exercise only ever marked one muscle.",
+      },
+    ],
+  },
   {
     version: "1.12.0",
     date: "August 2026",
@@ -3628,6 +3785,15 @@ function registerCustomExercise(ex) {
   const exists = EXERCISES[ex.muscle].some((e) => e.id === ex.id);
   if (!exists) EXERCISES[ex.muscle].push(ex);
   ALL_EXERCISES_BY_ID[ex.id] = ex;
+  // A custom compound's indirect muscles go into the same table the built-in
+  // ones use, rather than being read from the exercise object at each call
+  // site. Everything downstream — the readiness map's partial fatigue, the
+  // half-set credit in weekly volume — keys off SECONDARY_MUSCLES[id], so
+  // registering here makes a custom exercise behave like a built-in one with
+  // no changes anywhere else.
+  if (Array.isArray(ex.secondary) && ex.secondary.length) {
+    SECONDARY_MUSCLES[ex.id] = ex.secondary.filter((m) => m !== ex.muscle);
+  }
 }
 
 // Loads any previously saved custom exercises from storage into the live
@@ -4140,7 +4306,7 @@ function ExerciseSearchPicker({ excludeIds, onAdd, surface, autoFocus, maxHeight
     });
 
   const sections = Object.keys(EXERCISES)
-    .map((m) => ({ muscle: m, options: visibleExercises(m).filter((e) => !excludeIds.has(e.id) && e.name.toLowerCase().includes(q)) }))
+    .map((m) => ({ muscle: m, options: visibleExercises(m).filter((e) => !excludeIds.has(e.id) && exerciseMatchesQuery(e, q)) }))
     .filter((sec) => sec.options.length > 0);
 
   return (
@@ -4189,6 +4355,22 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel }) {
   const [muscle, setMuscle] = useState(defaultMuscle || muscles[0]);
   const [type, setType] = useState("compound");
   const [cue, setCue] = useState("");
+  const [secondary, setSecondary] = useState([]);
+
+  // Only compounds carry indirect work — that is what makes them compound.
+  // Anything picked before switching to isolation is dropped rather than
+  // kept invisibly, so what you see on screen is what gets saved.
+  const wantsSecondary = type === "compound";
+  // Offer whatever the caller considers a real muscle group, minus the one
+  // already chosen as primary. Not MUSCLE_GROUPS, which is keyed off
+  // EXERCISES and therefore includes "Mobility" — a category with no
+  // recovery window, so picking it would silently do nothing.
+  const secondaryOptions = muscles.filter((m) => m !== muscle && m !== "Mobility");
+  const chosenSecondary = wantsSecondary ? secondary.filter((m) => m !== muscle) : [];
+
+  function toggleSecondary(m) {
+    setSecondary((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
+  }
 
   function handleSave() {
     if (!name.trim()) return;
@@ -4200,6 +4382,7 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel }) {
       n += 1;
     }
     const ex = { id, name: name.trim(), type, cue: cue.trim() || "Control the weight through a full range of motion.", muscle };
+    if (chosenSecondary.length) ex.secondary = chosenSecondary;
     onSave(ex);
   }
 
@@ -4246,6 +4429,37 @@ function NewExerciseForm({ muscles, defaultMuscle, onSave, onCancel }) {
           </button>
         ))}
       </div>
+      {wantsSecondary && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>
+            Also works (optional)
+          </div>
+          <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45, marginBottom: 8 }}>
+            Muscles this hits indirectly. They get partial fatigue on the readiness map and half a set each in weekly volume.
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {secondaryOptions.map((m) => {
+              const on = chosenSecondary.includes(m);
+              return (
+                <button
+                  key={m}
+                  onClick={() => toggleSecondary(m)}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${on ? COLORS.accent : COLORS.line}`,
+                    background: on ? hexToRgba(COLORS.accent, 0.14) : COLORS.surfaceRaised,
+                    color: on ? COLORS.accent : COLORS.textDim,
+                    fontSize: 11.5,
+                  }}
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <textarea
         placeholder="Cue / technique tip (optional)"
         value={cue}
@@ -6112,7 +6326,7 @@ function SelectScreen({ split, settings, onBack, onContinue, onContinueSpecific 
             style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "10px 12px", color: COLORS.text, fontSize: 13.5, marginBottom: 16 }}
           />
           {SPLITS[split].map((m) => {
-            const filtered = visibleExercises(m).filter((ex) => ex.name.toLowerCase().includes(searchQuery.trim().toLowerCase()));
+            const filtered = visibleExercises(m).filter((ex) => exerciseMatchesQuery(ex, searchQuery));
             if (filtered.length === 0) return null;
             const isOpen = searchQuery.trim() ? true : openMuscles.has(m);
             return (
@@ -6394,6 +6608,7 @@ function ExerciseCard({
   onDropChange,
   onRemoveDrop,
   onStartSuperset,
+  onClearWeights,
   supersetInfo,
 }) {
   const isAdvanced = settings.appMode === "advanced";
@@ -6418,7 +6633,35 @@ function ExerciseCard({
   const [noteOpen, setNoteOpen] = useState(false);
   const [openRir, setOpenRir] = useState(null); // index of the set whose RIR popout is open
   const [warmupChecked, setWarmupChecked] = useState(() => new Set());
-  const showMethodPicker = isAdvanced && ex.type !== "mobility" && methodOptions.length > 1;
+  // Calisthenics get their own dedicated control instead of being buried in
+  // the cog menu: how a dip or a pull-up is loaded is a per-session decision
+  // made before the first rep, not a setting you go looking for.
+  const calisthenic = isCalisthenic(ex.id);
+  const loading = calisthenic ? loadingOf(ex.id, method, "") : null;
+  const [loadingOpen, setLoadingOpen] = useState(false);
+  // Asked once per exercise per session, the first time a weight field is
+  // touched. Assistance settings and belt weights barely move week to week,
+  // so retyping the same number every session is pure friction — but
+  // pre-filling it silently would be worse, because a number you did not
+  // enter is a number you will not notice is wrong.
+  const [weightPromptAt, setWeightPromptAt] = useState(null);
+  const [weightPromptDone, setWeightPromptDone] = useState(false);
+  /* The last figure logged at THIS loading, not simply the last figure. An
+     assisted session and a weighted one both store a number in the same
+     column and they mean opposite things, so offering the wrong one would
+     suggest hanging 30kg off someone who needs 30kg of help. */
+  const lastLoadingWeight = (() => {
+    if (!calisthenic || loading === "Bodyweight") return null;
+    const list = history[ex.id] || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const top = getTopSet(list[i].sets) || {};
+      if (loadingOf(ex.id, list[i].method, top.weight) !== loading) continue;
+      const w = parseFloat(top.weight);
+      if (Number.isFinite(w) && w > 0) return w;
+    }
+    return null;
+  })();
+  const showMethodPicker = isAdvanced && ex.type !== "mobility" && methodOptions.length > 1 && !calisthenic;
   const cable = isCableExercise(ex, method);
   const machineOnly = !cable && isMachineExercise(ex, method);
   const showMachineBlock = isAdvanced && (cable || machineOnly);
@@ -6543,6 +6786,73 @@ function ExerciseCard({
           <span style={{ color: supersetInfo.color, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1, textTransform: "uppercase" }}>
             Superset {supersetInfo.label}
           </span>
+        </div>
+      )}
+
+      {calisthenic && (
+        <div data-tour="calisthenic-loading" style={{ marginBottom: 10 }}>
+          {!loadingOpen ? (
+            <button
+              onClick={() => setLoadingOpen(true)}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.accent}`, borderRadius: 10, padding: "10px 0", color: COLORS.accent, fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }}
+            >
+              {loading}
+              <ChevronDown size={14} />
+            </button>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              {CALISTHENIC_LOADINGS.map((opt) => {
+                const active = loading === opt;
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => {
+                      onMetaChange(ex.id, "method", opt);
+                      // Switching loading changes what the weight column
+                      // means, so a number typed under the old meaning is
+                      // cleared rather than silently reinterpreted.
+                      if (opt !== loading) onClearWeights(ex.id);
+                      setLoadingOpen(false);
+                    }}
+                    style={{ background: active ? COLORS.accent : COLORS.surfaceRaised, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, borderRadius: 10, padding: "11px 4px", color: active ? "#1A1200" : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 11.5, textTransform: "uppercase", letterSpacing: 0.3 }}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {calisthenic && weightPromptAt !== null && lastLoadingWeight !== null && (
+        <div style={{ background: COLORS.surfaceRaised, border: `1px solid ${COLORS.accent}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+          <div style={{ color: COLORS.text, fontSize: 12.5, marginBottom: 8 }}>
+            Last {loading.toLowerCase()} session used{" "}
+            <strong>{lastLoadingWeight}{settings.weightUnit}</strong>. Use it again?
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => {
+                // Fills every set still blank, because the pin or the belt
+                // is set once and then every set of the exercise uses it.
+                sets.forEach((st, idx) => {
+                  if (!st.weight) onSetChange(ex.id, idx, "weight", String(lastLoadingWeight));
+                });
+                setWeightPromptDone(true);
+                setWeightPromptAt(null);
+              }}
+              style={{ flex: 1, background: COLORS.accent, border: "none", borderRadius: 8, padding: "9px 0", color: "#1A1200", fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+            >
+              Use {lastLoadingWeight}{settings.weightUnit}
+            </button>
+            <button
+              onClick={() => { setWeightPromptDone(true); setWeightPromptAt(null); }}
+              style={{ flex: 1, background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 0", color: COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+            >
+              Enter new
+            </button>
+          </div>
         </div>
       )}
 
@@ -6785,14 +7095,30 @@ function ExerciseCard({
               </button>
             )}
             <div style={{ width: 18, color: COLORS.textDim, fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>{i + 1}</div>
-            <input
-              type="number"
-              inputMode="decimal"
-              placeholder="wt"
-              value={s.weight}
-              onChange={(e) => onSetChange(ex.id, i, "weight", e.target.value)}
-              style={{ ...inputBase, width: 62, flexGrow: 0, flexShrink: 0, padding: "5px 6px", boxSizing: "border-box", ...toneStyle }}
-            />
+            {loading === "Bodyweight" ? (
+              // Unloaded: there is no number to enter, and an empty box that
+              // must stay empty is just a thing to wonder about.
+              <div
+                title="Bodyweight — no added or assisted load"
+                style={{ width: 62, flexGrow: 0, flexShrink: 0, padding: "5px 6px", boxSizing: "border-box", textAlign: "center", borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.textDim, fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                BW
+              </div>
+            ) : (
+              <input
+                type="number"
+                inputMode="decimal"
+                placeholder={loading === "Assisted" ? "−assist" : loading === "Weighted" ? "+wt" : "wt"}
+                value={s.weight}
+                onFocus={() => {
+                  if (!calisthenic || weightPromptDone || s.weight) return;
+                  if (lastLoadingWeight === null) return;
+                  setWeightPromptAt(i);
+                }}
+                onChange={(e) => onSetChange(ex.id, i, "weight", e.target.value)}
+                style={{ ...inputBase, width: 62, flexGrow: 0, flexShrink: 0, padding: "5px 6px", boxSizing: "border-box", ...toneStyle }}
+              />
+            )}
             <input
               type="number"
               inputMode="numeric"
@@ -7045,6 +7371,12 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
   }, []);
   const onAddSet = useCallback((exId) => {
     setSets((prev) => ({ ...prev, [exId]: [...prev[exId], { weight: "", reps: "", done: false }] }));
+  }, []);
+  // Used when a calisthenic exercise changes loading. Assistance and added
+  // weight are opposite quantities, so a number entered under one meaning
+  // would be flatly wrong under the other — reps are kept, weights are not.
+  const onClearWeights = useCallback((exId) => {
+    setSets((prev) => ({ ...prev, [exId]: (prev[exId] || []).map((s) => ({ ...s, weight: "" })) }));
   }, []);
   const onRemoveSet = useCallback((exId, idx) => {
     setSets((prev) => ({ ...prev, [exId]: prev[exId].filter((_, i) => i !== idx) }));
@@ -7456,6 +7788,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
                         meta={meta[ex.id] || {}}
                         onMetaChange={onMetaChange}
                         onSetChange={onSetChange}
+                        onClearWeights={onClearWeights}
                         onToggleSetDone={onToggleSetDone}
                         onAddSet={onAddSet}
                         onRemoveSet={onRemoveSet}
@@ -8061,19 +8394,33 @@ const CHART_METRICS = [
   { key: "volume", label: "Volume", blurb: "Total weight moved each session — sets x reps x weight, drop sets included." },
 ];
 
-function metricValue(metric, sets) {
+/* One logged session reduced to the number a chart plots.
+
+   `entry` carries the exercise id, the loading and the lifter's bodyweight
+   at the time, because for a calisthenic movement the figure in the weight
+   column is not the load. Thirty kilos of assistance is bodyweight minus
+   thirty, and it goes DOWN as you get stronger — plotting it raw draws a
+   beginner's progress running backwards. */
+function metricValue(metric, sets, entry) {
   const list = sets || [];
+  const ctx = entry || {};
+  const loadOf = (w) =>
+    ctx.exerciseId && isCalisthenic(ctx.exerciseId)
+      ? effectiveLoad(ctx.exerciseId, ctx.method, w, ctx.bodyweight)
+      : parseFloat(w);
   if (metric === "volume") {
     let total = 0;
     for (const set of list) {
-      total += (parseFloat(set.weight) || 0) * (parseFloat(set.reps) || 0);
-      for (const d of set.drops || []) total += (parseFloat(d.weight) || 0) * (parseFloat(d.reps) || 0);
+      total += (loadOf(set.weight) || 0) * (parseFloat(set.reps) || 0);
+      // A drop set's own load follows the same rule as the set it hangs off.
+      for (const d of set.drops || []) total += (loadOf(d.weight) || 0) * (parseFloat(d.reps) || 0);
     }
     return Math.round(total);
   }
   const top = getTopSet(list) || {};
-  if (metric === "e1rm") return estimateOneRM(top.weight, top.reps) || 0;
-  return parseFloat(top.weight) || 0;
+  const load = loadOf(top.weight);
+  if (metric === "e1rm") return estimateOneRM(load, top.reps) || 0;
+  return load || 0;
 }
 
 const CHART_PAD = { top: 8, right: 12, bottom: 20, left: 38 };
@@ -8212,6 +8559,29 @@ function ProgressScreen({ onBack }) {
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(false);
   const [openGroups, setOpenGroups] = useState(null); // null until the user opens or closes one
+  // Needed to plot calisthenics at all: an assisted pull-up's load is
+  // bodyweight minus the assistance, so without a weigh-in there is no
+  // number to draw.
+  const [bwHistory, setBwHistory] = useState([]);
+  const [bwCurrent, setBwCurrent] = useState(null);
+  const [unit, setUnit] = useState("kg");
+  const bodyweightOnDate = (d) => bodyweightOnOrBefore(d, bwHistory, bwCurrent, unit);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [hist, cur, cfg] = await Promise.all([
+        safeGet("bodyweight-history"),
+        safeGet("bodyweight"),
+        safeGet("settings"),
+      ]);
+      if (cancelled) return;
+      setBwHistory(Array.isArray(hist) ? hist : []);
+      setBwCurrent(cur || null);
+      if (cfg && cfg.weightUnit) setUnit(cfg.weightUnit);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -8263,7 +8633,17 @@ function ProgressScreen({ onBack }) {
       const v = brandFilter === UNTAGGED_BRAND ? { label: UNTAGGED_BRAND } : brands.find((x) => x.label === brandFilter);
       return matchesVariation(h, selectedId, v);
     })
-    .map((h) => ({ date: String(h.date).slice(5), weight: metricValue(metric, h.sets) }))
+    .map((h) => ({
+      date: String(h.date).slice(5),
+      weight: metricValue(metric, h.sets, {
+        exerciseId: selectedId,
+        method: h.method,
+        // The bodyweight recorded nearest that session, not today's — a
+        // year of charted pull-ups should not shift every time the scale
+        // moves.
+        bodyweight: bodyweightOnDate(h.date),
+      }),
+    }))
     .filter((p) => p.weight > 0);
 
   // Everything you have logged, filed under the body part it trains and in
@@ -9866,6 +10246,12 @@ function FeatureListScreen({ onBack }) {
           <FeatureItem name="Variant tiles (Advanced Mode)">
 One entry per movement. A bench press is a bench press whether it is loaded with a barbell, dumbbells or a Smith machine, so you pick the implement per session instead of hunting through four near-identical entries.
           </FeatureItem>
+          <FeatureItem name="Bodyweight, assisted or weighted">
+            Dips, pull-ups, push-ups and nordic curls have one button on the exercise card for how you are loading them today. Assisted asks for the assistance, weighted asks for what you added, and bodyweight asks for nothing. The first time you touch the weight box it offers the figure you used last time at that same loading.
+          </FeatureItem>
+          <FeatureItem name="Calisthenics progression">
+            Progress charts plot what you actually moved: bodyweight minus the assistance, or bodyweight plus what you hung off yourself. Coming off the assist machine therefore reads as progress instead of your numbers appearing to collapse. Needs a bodyweight in Personal Info to work.
+          </FeatureItem>
           <FeatureItem name="Change the Implement (Advanced Mode)">
             Mid-workout, open an exercise's menu (gear icon) to change how you're loading it. The exercise stays the same, so your history and any superset stay attached — only the comparison narrows to sessions done the same way.
           </FeatureItem>
@@ -9874,6 +10260,12 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           </FeatureItem>
           <FeatureItem name="Custom exercises (Advanced Mode)">
             Tap "+ New" on any exercise picker — or use the Exercise Database screen — to add your own exercise. It's saved and reusable everywhere afterward.
+          </FeatureItem>
+          <FeatureItem name="Indirect muscles on your own compounds">
+            When the exercise you are adding is a compound, tick the muscles it also hits. They get partial fatigue on the readiness map and half a set each in weekly volume, exactly like the built-in exercises.
+          </FeatureItem>
+          <FeatureItem name="Search by whatever you call it">
+            The Exercise Database has a search box, and it knows common alternative names — press-up finds Push-Up, OHP finds Overhead Press, RDL finds Romanian Deadlift.
           </FeatureItem>
           <FeatureItem name="Pause an exercise (Advanced Mode)">
             On the "Choose specific exercises" screen, tap the pause icon next to any exercise to exclude it from auto-built (Train Ready Muscles / muscle-tap) sessions without deleting it.
@@ -10022,6 +10414,7 @@ function ExerciseRowControls({ onUp, onDown, canUp, canDown, onRemove, removed, 
 
 function ExerciseDatabaseScreen({ onBack }) {
   const [muscle, setMuscle] = useState(null);
+  const [query, setQuery] = useState("");
   const [showRemoved, setShowRemoved] = useState(false);
   const [adding, setAdding] = useState(false);
   const [, forceRefresh] = useState(0);
@@ -10078,15 +10471,61 @@ function ExerciseDatabaseScreen({ onBack }) {
     padding: "11px 12px",
   };
 
-  /* ---- Level 1: muscle groups ---- */
+  /* ---- Level 1: muscle groups, or search results across all of them ---- */
   if (!muscle) {
+    // Browsing by body part only works if you already know which body part
+    // the app filed something under, and it silently fails for anyone whose
+    // word for a movement is not the one on the entry — a press-up is a
+    // Push-Up here. Search matches aliases as well as names.
+    const q = query.trim();
+    const results = q
+      ? muscles
+          .map((m) => ({ muscle: m, matches: visibleExercises(m).filter((e) => exerciseMatchesQuery(e, q)) }))
+          .filter((g) => g.matches.length)
+      : null;
+
     return (
       <div style={{ paddingBottom: 40 }}>
         <TopBar title="Exercise Database" onBack={onBack} />
         <div style={{ padding: "0 20px 16px", color: COLORS.textDim, fontSize: 13, lineHeight: 1.5 }}>
           Every exercise Iron Log knows, by body part. Reorder them to change which ones the app suggests first, remove the ones you can't or won't do, and add your own.
         </div>
-        <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ padding: "0 20px 12px" }}>
+          <input
+            type="text"
+            placeholder="Search exercises…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box", background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "10px 12px", color: COLORS.text, fontSize: 13.5 }}
+          />
+        </div>
+
+        {results && (
+          <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+            {results.length === 0 && (
+              <div style={{ color: COLORS.textDim, fontSize: 13, padding: "8px 2px" }}>
+                Nothing matches “{q}”. Open a body part below to add it yourself.
+              </div>
+            )}
+            {results.map((g) => (
+              <div key={g.muscle}>
+                <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.2, textTransform: "uppercase", margin: "6px 2px 6px" }}>
+                  {g.muscle}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {g.matches.map((e) => (
+                    <button key={e.id} onClick={() => { setQuery(""); setMuscle(g.muscle); setShowRemoved(false); }} style={{ ...rowStyle, textAlign: "left" }}>
+                      <span style={{ color: COLORS.text, fontSize: 13.5 }}>{e.name}</span>
+                      <ChevronRight size={15} color={COLORS.accent} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8, ...(results ? { display: "none" } : {}) }}>
           {muscles.map((m, mi) => {
             const visible = visibleExercises(m).length;
             const hidden = (EXERCISES[m] || []).length - visible;
