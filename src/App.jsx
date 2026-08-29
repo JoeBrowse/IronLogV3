@@ -736,6 +736,25 @@ const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
   {
+    version: "1.19.0",
+    date: "August 2026",
+    headline: "Tap last time's numbers to log them again.",
+    items: [
+      {
+        title: "Repeat last session in one tap",
+        body: "The \u201clast time\u201d panel on every exercise is a button now. Tap it and those weights and reps are written straight onto the card, one row per set you did. Most sessions are the last one repeated, and typing three identical rows back in was the most repeated thing in the app.",
+      },
+      {
+        title: "It will not wipe what you have typed",
+        body: "On an empty exercise it fills straight away. If you have already logged something it asks first, and only replaces on a second tap.",
+      },
+      {
+        title: "Effort is not copied",
+        body: "Weight and reps are a plan; how close to failure it put you is a measurement. Reps in reserve is left blank for you to log, so the readiness map is never fed a number nobody reported.",
+      },
+    ],
+  },
+  {
     version: "1.18.0",
     date: "August 2026",
     headline: "Light mode, and everything about how the app looks in one place.",
@@ -7582,6 +7601,7 @@ function ExerciseCard({
   onRemoveDrop,
   onStartSuperset,
   onClearWeights,
+  onFillFromLast,
   supersetInfo,
 }) {
   const isAdvanced = settings.appMode === "advanced";
@@ -7603,6 +7623,33 @@ function ExerciseCard({
   const showTicks = settings.showSetTicks !== false;
   const warmups = showWarmupBlock ? warmupSets(last && last.weight) : [];
   const [menuOpen, setMenuOpen] = useState(false);
+  const isLoggable = ex.type !== "mobility";
+
+  const [confirmRepeat, setConfirmRepeat] = useState(false);
+
+  // The rows to write if the numbers are tapped. Older history predates
+  // per-set records and carries one weight and rep count for the whole
+  // exercise, so it becomes a single set rather than nothing.
+  const lastSets = last && !last.brandMismatch
+    ? (last.sets && last.sets.length ? last.sets : (last.weight || last.reps ? [{ weight: last.weight, reps: last.reps }] : []))
+    : [];
+  const repeatable = isLoggable && !!onFillFromLast && lastSets.length > 0;
+  // Anything already entered on this card, including a ticked-off set.
+  const hasEntries = (sets || []).some((st) => (st.weight || "") !== "" || (st.reps || "") !== "" || st.done);
+
+  // A single tap when the card is empty, two when it is not — replacing sets
+  // someone has already logged is the one way this button could cost them
+  // work, so it asks first rather than being clever about merging.
+  function handleRepeatLast() {
+    if (!repeatable) return;
+    if (hasEntries && !confirmRepeat) {
+      setConfirmRepeat(true);
+      return;
+    }
+    onFillFromLast(ex.id, lastSets);
+    setConfirmRepeat(false);
+  }
+
   const [noteOpen, setNoteOpen] = useState(false);
   const [openRir, setOpenRir] = useState(null); // index of the set whose RIR popout is open
   const [warmupChecked, setWarmupChecked] = useState(() => new Set());
@@ -7639,7 +7686,6 @@ function ExerciseCard({
   const machineOnly = !cable && isMachineExercise(ex, method);
   const showMachineBlock = isAdvanced && (cable || machineOnly);
   const grips = cable ? getCableGrips(ex) : [];
-  const isLoggable = ex.type !== "mobility";
 
   const inputBase = {
     background: COLORS.surfaceRaised,
@@ -7917,11 +7963,32 @@ function ExerciseCard({
               </>
             ) : (
               <>
-                <div style={{ color: COLORS.text, fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.5 }}>
-                  {(last.sets && last.sets.length ? last.sets : [{ weight: last.weight, reps: last.reps }])
-                    .map((s) => `${s.weight || "–"}${s.weight ? settings.weightUnit : ""}×${s.reps || "–"}`)
-                    .join("  ·  ")}
-                </div>
+                {/* Tapping the numbers writes them onto this exercise. Most
+                    sessions are the last one repeated, and typing three
+                    identical rows back in is the app's most repeated action.
+                    Only offered where the numbers are actually a target —
+                    a brandMismatch reading is explicitly not one. */}
+                <button
+                  onClick={handleRepeatLast}
+                  disabled={!repeatable}
+                  aria-label={repeatable ? "Use these weights and reps again" : undefined}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left", background: "transparent",
+                    border: "none", padding: 0, cursor: repeatable ? "pointer" : "default",
+                  }}
+                >
+                  <span style={{ display: "block", color: COLORS.text, fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.5 }}>
+                    {(last.sets && last.sets.length ? last.sets : [{ weight: last.weight, reps: last.reps }])
+                      .map((s) => `${s.weight || "–"}${s.weight ? settings.weightUnit : ""}×${s.reps || "–"}`)
+                      .join("  ·  ")}
+                  </span>
+                  {repeatable && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 5, color: confirmRepeat ? COLORS.accent : COLORS.textDim, fontSize: 11 }}>
+                      <RotateCcw size={11} />
+                      {confirmRepeat ? "Tap again to replace what you have typed" : "Tap to log these again"}
+                    </span>
+                  )}
+                </button>
                 {(last.method || last.brand || last.grip) && (
                   <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 4 }}>
                     on {[last.method, last.brand, last.grip].filter(Boolean).join(" · ")}
@@ -8351,6 +8418,22 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
   const onClearWeights = useCallback((exId) => {
     setSets((prev) => ({ ...prev, [exId]: (prev[exId] || []).map((s) => ({ ...s, weight: "" })) }));
   }, []);
+  // Copies last session's weights and reps onto this exercise, one row per
+  // set it had. Most sessions are the last one repeated — the same three
+  // sets of the same weight — and typing them back in by hand is the single
+  // most repeated action in the app.
+  //
+  // Reps in reserve is deliberately not copied. Weight and reps are a plan;
+  // how close to failure it put you is a measurement, and carrying last
+  // week's measurement forward as if it were this week's would feed the
+  // readiness map a number nobody reported.
+  const onFillFromLast = useCallback((exId, lastSets) => {
+    if (!Array.isArray(lastSets) || !lastSets.length) return;
+    setSets((prev) => ({
+      ...prev,
+      [exId]: lastSets.map((s) => ({ weight: s.weight || "", reps: s.reps || "", done: false })),
+    }));
+  }, []);
   const onRemoveSet = useCallback((exId, idx) => {
     setSets((prev) => ({ ...prev, [exId]: prev[exId].filter((_, i) => i !== idx) }));
   }, []);
@@ -8762,6 +8845,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
                         onMetaChange={onMetaChange}
                         onSetChange={onSetChange}
                         onClearWeights={onClearWeights}
+                        onFillFromLast={onFillFromLast}
                         onToggleSetDone={onToggleSetDone}
                         onAddSet={onAddSet}
                         onRemoveSet={onRemoveSet}
@@ -11378,6 +11462,9 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           </FeatureItem>
           <FeatureItem name="Calisthenics progression">
             Progress charts plot what you actually moved: bodyweight minus the assistance, or bodyweight plus what you hung off yourself. Coming off the assist machine therefore reads as progress instead of your numbers appearing to collapse. Needs a bodyweight in Personal Info to work.
+          </FeatureItem>
+          <FeatureItem name="Repeat last session in one tap">
+            The "last time" panel on an exercise is a button. Tap it and those weights and reps go straight onto the card, one row per set you did last time. On an empty exercise it fills immediately; if you have already typed something it asks first and only replaces on a second tap. Reps in reserve is never copied — that is a measurement of the set you are about to do, not a plan.
           </FeatureItem>
           <FeatureItem name="Change the Implement (Advanced Mode)">
             Mid-workout, open an exercise's menu (gear icon) to change how you're loading it. The exercise stays the same, so your history and any superset stay attached — only the comparison narrows to sessions done the same way.
