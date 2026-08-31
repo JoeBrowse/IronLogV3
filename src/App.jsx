@@ -736,6 +736,25 @@ const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
   {
+    version: "1.20.0",
+    date: "August 2026",
+    headline: "Share a workout to Strava.",
+    items: [
+      {
+        title: "Turn it on in Settings",
+        body: "Settings \u2192 Share to Strava. It adds a button when you finish a workout and on every past one in History.",
+      },
+      {
+        title: "Your lifts, ready to paste",
+        body: "It builds the session into text \u2014 the split, exercise count, set count and total weight moved, then every exercise with its sets and the implement you used \u2014 hands it to the share sheet, and opens Strava for you to paste into the activity description.",
+      },
+      {
+        title: "Why it is a paste and not an upload",
+        body: "Posting straight into Strava needs a secret key at sign-in, and Iron Log has no server to keep one in \u2014 it would have to ship inside the app where anyone could take it. Strava also has nowhere structured to put sets and reps: an activity has a name, a type, a duration and a description, so the lifts end up as description text either way.",
+      },
+    ],
+  },
+  {
     version: "1.19.0",
     date: "August 2026",
     headline: "Tap last time's numbers to log them again.",
@@ -1995,6 +2014,122 @@ async function writeBackupFile(filename, text) {
 }
 
 /* ---------------------------------------------------------------
+   SHARING A WORKOUT TO STRAVA
+
+   WHY THIS IS A SHARE AND NOT AN UPLOAD
+
+   Strava's API can create an activity, but authorising against it needs a
+   client secret at token exchange and they do not support PKCE for public
+   clients. Iron Log has no server: the secret would have to ship inside the
+   APK, where anyone can pull it out and use this app's Strava identity as
+   their own. So there is no honest way to post directly from here without
+   standing up a small service to hold that secret, which is not something to
+   add quietly on the way to a share button.
+
+   What this does instead is the thing the request actually described: build
+   the workout into text, hand it to the phone's share sheet, and open Strava.
+   You paste it into an activity's description.
+
+   Worth knowing even if the upload existed: Strava has no data model for
+   lifting. An activity carries a name, a type, a duration and a description —
+   there is nowhere structured for sets and reps to go, so they would end up
+   as description text either way. The text is the deliverable, not a
+   consolation for the missing API.
+--------------------------------------------------------------- */
+
+const STRAVA_NEW_ACTIVITY_URL = "https://www.strava.com/activities/new";
+
+// Total weight moved. Bodyweight work contributes nothing here rather than
+// guessing at a body mass the session never recorded — a silent zero is
+// better than a number that looks measured and is not.
+function sessionVolume(session) {
+  let total = 0;
+  (session.exercises || []).forEach((ex) => {
+    (ex.sets || []).forEach((st) => {
+      const w = parseFloat(st.weight);
+      const r = parseFloat(st.reps);
+      if (Number.isFinite(w) && Number.isFinite(r)) total += w * r;
+    });
+  });
+  return Math.round(total);
+}
+
+function sessionSetCount(session) {
+  return (session.exercises || []).reduce((n, ex) => n + (ex.sets || []).length, 0);
+}
+
+// The text that goes in the share sheet. Written to be pasted into a Strava
+// description and read there, so it is plain lines rather than anything that
+// depends on markdown surviving the trip.
+function stravaSummary(session, unit) {
+  const u = unit || "kg";
+  const exercises = session.exercises || [];
+  const volume = sessionVolume(session);
+  const head = [
+    session.split ? `${session.split} · ` : "",
+    `${exercises.length} exercise${exercises.length === 1 ? "" : "s"}`,
+    ` · ${sessionSetCount(session)} sets`,
+    volume > 0 ? ` · ${volume.toLocaleString()}${u} total` : "",
+  ].join("");
+
+  const lines = exercises.map((ex) => {
+    const sets = (ex.sets || [])
+      .map((st) => {
+        const reps = st.reps || "–";
+        // A blank weight is bodyweight work, which is what the card showed
+        // while it was being logged.
+        return st.weight ? `${st.weight}${u}×${reps}` : `BW×${reps}`;
+      })
+      .join(", ");
+    const how = [ex.method, ex.brand, ex.grip].filter(Boolean).join(" · ");
+    return `${ex.name}${how ? ` (${how})` : ""} — ${sets}`;
+  });
+
+  return [head, "", ...lines, "", "Logged with Iron Log"].join("\n");
+}
+
+// Native share sheet where there is one, then the browser's, then the
+// clipboard. The clipboard is not a failure case — on a desktop browser it
+// is the only thing that exists, and pasting is what happens next regardless.
+async function shareText(title, text) {
+  const Share = capPlugin("Share");
+  if (Share) {
+    try {
+      await Share.share({ title, text, dialogTitle: title });
+      return "shared";
+    } catch (e) {
+      // A cancelled share sheet throws the same way a broken one does, so
+      // fall through rather than reporting an error for a deliberate act.
+    }
+  }
+  if (typeof navigator !== "undefined" && navigator.share) {
+    try {
+      await navigator.share({ title, text });
+      return "shared";
+    } catch (e) {
+      /* cancelled or unsupported — fall through */
+    }
+  }
+  if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return "copied";
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  return "failed";
+}
+
+function openStrava() {
+  if (typeof window === "undefined") return;
+  // An https link rather than the strava:// scheme: Android hands it to the
+  // app when it is installed and to the browser when it is not, where the
+  // custom scheme would simply fail on a phone without Strava.
+  window.open(STRAVA_NEW_ACTIVITY_URL, "_blank", "noopener");
+}
+
+/* ---------------------------------------------------------------
    SCHEMA VERSIONING / MIGRATIONS
    Every persisted key lives in durable storage (Capacitor Preferences on
    device — see capPrefs() above — which survives app updates/reinstalls
@@ -2943,6 +3078,7 @@ const DEFAULT_SETTINGS = {
   theme: "system",
   colourScheme: "default",
   highContrast: false,
+  stravaShare: false,
 };
 
 // Simple mode keeps a first-time lifter to the essentials: muscle-tap
@@ -8660,9 +8796,13 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
     // computeMuscleLastMap), so there's no separate "last trained" cache to
     // keep in sync here — it just falls out of the session we're about to save.
 
+    // Declared out here so the finish screen can be handed the session it
+    // just saved. A workout with nothing logged saves nothing and leaves this
+    // null, which is what the share button checks for.
+    let session = null;
     if (logged.length > 0) {
       const prevSessions = (await safeGet("workout-history")) || [];
-      const session = { id: `${date}-${Date.now()}`, date, at, split, exercises: logged, supersets: supersets.length ? supersets : undefined };
+      session = { id: `${date}-${Date.now()}`, date, at, split, exercises: logged, supersets: supersets.length ? supersets : undefined };
       if (programmeCtx) {
         session.programmeId = programmeCtx.programmeId;
         session.dayKey = programmeCtx.dayKey;
@@ -8690,7 +8830,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
 
     await safeDelete("in-progress-workout");
     setSaving(false);
-    onFinish(newPBs);
+    onFinish(newPBs, session);
   }
 
   const addedIds = new Set(exercises.map((e) => e.id));
@@ -8992,7 +9132,54 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
   );
 }
 
-function DoneScreen({ onHome, newPBs, programmeInfo }) {
+// One button, used on the finish screen and on any past workout. Two steps
+// rather than one: share the text, then open Strava. Doing both on a single
+// tap would launch Strava while the share sheet was still up, and the text
+// has to be somewhere the user can paste from before Strava is any use.
+function StravaShareButton({ session, unit, compact }) {
+  const [state, setState] = useState("idle");
+
+  async function handleShare() {
+    const result = await shareText("Workout", stravaSummary(session, unit));
+    setState(result);
+  }
+
+  const label = {
+    idle: "Share to Strava",
+    shared: "Shared — open Strava",
+    copied: "Copied — open Strava",
+    failed: "Could not share",
+  }[state];
+
+  return (
+    <div style={{ width: "100%" }}>
+      <button
+        onClick={state === "shared" || state === "copied" ? openStrava : handleShare}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+          background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: compact ? 8 : 12,
+          padding: compact ? "9px 0" : "13px 0", color: COLORS.text,
+          fontFamily: "'Oswald', sans-serif", fontSize: compact ? 12.5 : 13.5,
+          textTransform: "uppercase", letterSpacing: 0.5,
+        }}
+      >
+        <TrendingUp size={compact ? 13 : 15} /> {label}
+      </button>
+      {state === "copied" && (
+        <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 1.4 }}>
+          Your workout is on the clipboard. Paste it into the activity&rsquo;s description.
+        </div>
+      )}
+      {state === "failed" && (
+        <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 1.4 }}>
+          This device would not share or copy. You can still see the workout in History.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DoneScreen({ onHome, newPBs, programmeInfo, session, settings }) {
   return (
     <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28 }}>
       <div style={{ width: 64, height: 64, borderRadius: 32, background: COLORS.accent, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
@@ -9042,6 +9229,12 @@ function DoneScreen({ onHome, newPBs, programmeInfo }) {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {settings && settings.stravaShare && session && (
+        <div style={{ width: "100%", marginBottom: 16 }}>
+          <StravaShareButton session={session} unit={settings.weightUnit} />
         </div>
       )}
 
@@ -9254,6 +9447,11 @@ function HistoryScreen({ onBack, settings }) {
                         <Trash2 size={13} /> Delete
                       </button>
                     </div>
+                    {settings.stravaShare && (
+                      <div style={{ marginTop: 8 }}>
+                        <StravaShareButton session={s} unit={settings.weightUnit} compact />
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -11190,6 +11388,7 @@ function SettingsScreen({ settings, onChange, onBack, onViewColour, onReplayTour
     { key: "showBodyMap", label: "Muscle Readiness Map", desc: "Show the body diagram on the home screen." },
     { key: "autoRestTimer", label: "Auto-Start Rest Timer", desc: "Start the rest countdown as soon as you tick a set off." },
     { key: "restTimerSound", label: "Rest Timer Sound", desc: "Play a beep when the rest timer finishes." },
+    { key: "stravaShare", label: "Share to Strava", desc: "Add a share button when you finish a workout and on every past one. It builds your lifts into text, hands them to the share sheet, and opens Strava for you to paste into the activity." },
     { key: "randomizeSelection", label: "Randomize Exercise Selection", desc: "Off: pick exercises in ranked order. On: shuffle for variety." },
   ];
 
@@ -11462,6 +11661,9 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           </FeatureItem>
           <FeatureItem name="Calisthenics progression">
             Progress charts plot what you actually moved: bodyweight minus the assistance, or bodyweight plus what you hung off yourself. Coming off the assist machine therefore reads as progress instead of your numbers appearing to collapse. Needs a bodyweight in Personal Info to work.
+          </FeatureItem>
+          <FeatureItem name="Share a workout to Strava">
+            Turn on Settings → Share to Strava and a share button appears when you finish a workout and on every past one in History. It builds the session into text — split, exercises, sets, total weight moved, then each lift with its sets and implement — hands it to your phone's share sheet, and opens Strava so you can paste it into the activity. It is a paste rather than a direct post because posting needs a secret key Iron Log has no server to hold, and Strava has nowhere structured to put sets and reps anyway.
           </FeatureItem>
           <FeatureItem name="Repeat last session in one tap">
             The "last time" panel on an exercise is a button. Tap it and those weights and reps go straight onto the card, one row per set you did last time. On an empty exercise it fills immediately; if you have already typed something it asks first and only replaces on a second tap. Reps in reserve is never copied — that is a measurement of the set you are about to do, not a plan.
@@ -12640,6 +12842,8 @@ export default function App() {
   const [presetSupersets, setPresetSupersets] = useState(null);
   const [resumeData, setResumeData] = useState(null);
   const [newPBs, setNewPBs] = useState([]);
+  // The session just saved, kept so the finish screen can offer to share it.
+  const [doneSession, setDoneSession] = useState(null);
   const [dbReady, setDbReady] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [workoutOrigin, setWorkoutOrigin] = useState("select");
@@ -12913,8 +13117,9 @@ export default function App() {
     setScreen("programmeStats");
   }
 
-  async function handleWorkoutFinished(pbs) {
+  async function handleWorkoutFinished(pbs, session) {
     setNewPBs(pbs || []);
+    setDoneSession(session || null);
     if (programmeCtx) {
       const active = await getActiveProgramme();
       setCurrentProgramme(active);
@@ -13208,7 +13413,15 @@ export default function App() {
         />
       )}
 
-      {screen === "done" && <DoneScreen onHome={() => setScreen("home")} newPBs={newPBs} programmeInfo={doneProgrammeInfo} />}
+      {screen === "done" && (
+        <DoneScreen
+          onHome={() => setScreen("home")}
+          newPBs={newPBs}
+          programmeInfo={doneProgrammeInfo}
+          session={doneSession}
+          settings={settings}
+        />
+      )}
 
       {screen === "history" && <HistoryScreen onBack={() => setScreen("home")} settings={settings} />}
 
