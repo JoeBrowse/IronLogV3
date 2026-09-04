@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, Minus, Check, Dumbbell, Clock, Trophy, History as HistoryIcon, Timer, Pause, Play, SkipForward, Lock, RotateCcw, Bookmark, TrendingUp, Trash2, Pencil, X, ChevronUp, ChevronDown, Settings as SettingsIcon, Sparkles, User, BookOpen } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Minus, Check, Dumbbell, Clock, Trophy, History as HistoryIcon, Timer, Pause, Play, SkipForward, Lock, RotateCcw, Bookmark, TrendingUp, Trash2, Pencil, X, ChevronUp, ChevronDown, Settings as SettingsIcon, Sparkles, User, BookOpen, PieChart } from "lucide-react";
 import { FRONT_MUSCLES, BACK_MUSCLES } from "body-muscles";
 
 /* ---------------------------------------------------------------
@@ -735,6 +735,29 @@ const APP_VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0
 const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
+  {
+    version: "1.21.0",
+    date: "September 2026",
+    headline: "The rest timer actually starts itself now, plus a breakdown of how a session went.",
+    items: [
+      {
+        title: "Fixed: auto-start rest timer",
+        body: "Ticking a set off was supposed to start the rest countdown automatically — it read the tick back too early and never fired. It now starts every time, as it always should have.",
+      },
+      {
+        title: "Set tick boxes off? Reps do the same job",
+        body: "With tick boxes hidden (Settings → Set Tick Boxes) there is nothing to tick, so entering a set's reps now starts the rest timer instead.",
+      },
+      {
+        title: "Session Breakdown on the finish screen",
+        body: "A donut of every set you did, coloured against the same set last time: green for more reps, amber for the same or one fewer, red for two or more fewer. Shown whenever there is a previous session to compare against.",
+      },
+      {
+        title: "Same colours, mid-set",
+        body: "A set's border while you're training uses the same scale — amber replaces the old grey for \"held\", and it now distinguishes one rep down (amber) from a real drop (red).",
+      },
+    ],
+  },
   {
     version: "1.20.0",
     date: "August 2026",
@@ -7600,26 +7623,27 @@ function setProgressTone(current, previous) {
   if (weight !== null && prevWeight !== null && weight !== prevWeight) {
     return weight > prevWeight ? "up" : "down";
   }
-  if (reps !== null && prevReps !== null && reps !== prevReps) {
-    return reps > prevReps ? "up" : "down";
+  // Weight held (or unloaded both times, e.g. bodyweight) — reps carry the
+  // signal. One fewer rep is normal set-to-set variance and stays amber;
+  // two or more is a real regression.
+  if (reps !== null && prevReps !== null) {
+    const diff = reps - prevReps;
+    if (diff > 0) return "up";
+    if (diff <= -2) return "down";
+    return "amber";
   }
-  // Both null means a bodyweight lift with no load logged either time,
-  // which still counts as matching.
-  const weightMatches = weight === prevWeight;
-  const repsMatch = reps !== null && prevReps !== null && reps === prevReps;
-  return weightMatches && repsMatch ? "same" : null;
+  return weight === prevWeight ? "amber" : null;
 }
 
-// Green reads as a win, so it gets the heavier outline; red is the same
-// weight so a drop is obvious without shouting, and grey sits quietly
-// between them.
-// A function rather than a constant: it reads COLORS, and COLORS is rewritten
-// when the colour scheme changes.
+// Same red/amber/green as the readiness map, so "worse/same/better than
+// last time" reads on the same scale a colourblind mode already covers.
+// A function rather than a constant: it reads STAGE_COLORS, which is
+// rewritten in place when the colour scheme changes.
 function setToneStyle(tone) {
   const styles = {
-    up: { borderColor: COLORS.ok, borderWidth: 3 },
-    down: { borderColor: COLORS.bad, borderWidth: 2 },
-    same: { borderColor: COLORS.textDim, borderWidth: 2 },
+    up: { borderColor: STAGE_COLORS.green, borderWidth: 3 },
+    down: { borderColor: STAGE_COLORS.red, borderWidth: 2 },
+    amber: { borderColor: STAGE_COLORS.amber, borderWidth: 2 },
   };
   return styles[tone];
 }
@@ -8405,6 +8429,14 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
   exercisesRef.current = exercises;
   settingsRef.current = settings;
   const [sets, setSets] = useState({});
+  // Read by onToggleSetDone and onSetChange to decide whether a tick or a
+  // reps entry should start the rest timer. A setState updater's own return
+  // value isn't visible to the code right after the setSets(...) call — it
+  // runs later, on the next render — so the decision has to be made from
+  // the state as it stood going into this event, not from inside the
+  // updater trying to leak a result back out.
+  const setsRef = useRef(sets);
+  setsRef.current = sets;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [timer, setTimer] = useState(null);
@@ -8539,11 +8571,24 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
     safeSet("in-progress-workout", { split, exercises, sets, meta, supersets, workoutDate: workoutDate.toISOString(), programmeCtx: programmeCtx || null, startedAt: startedAtRef.current });
   }, [split, exercises, sets, meta, supersets, workoutDate, loading]);
 
+  // With tick boxes hidden there is no tick to hang the auto-timer off, so
+  // reps arriving is the next best signal that a set just happened — fired
+  // once, on the transition from no reps to some, not on every keystroke.
   const onSetChange = useCallback((exId, idx, field, value) => {
-    setSets((prev) => {
-      const copy = { ...prev, [exId]: prev[exId].map((s, i) => (i === idx ? { ...s, [field]: value } : s)) };
-      return copy;
-    });
+    let startTimerFor = null;
+    if (field === "reps" && value && settingsRef.current.showSetTicks === false && settingsRef.current.autoRestTimer !== false) {
+      const arr = setsRef.current[exId];
+      const cur = arr && arr[idx];
+      if (cur && !cur.reps) startTimerFor = exId;
+    }
+    setSets((prev) => ({
+      ...prev,
+      [exId]: prev[exId].map((s, i) => (i === idx ? { ...s, [field]: value } : s)),
+    }));
+    if (startTimerFor) {
+      const ex = exercisesRef.current.find((e) => e.id === startTimerFor);
+      if (ex) startRest(ex);
+    }
   }, []);
   const onAddSet = useCallback((exId) => {
     setSets((prev) => ({ ...prev, [exId]: [...prev[exId], { weight: "", reps: "", done: false }] }));
@@ -8578,14 +8623,12 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
   // reason people stop using rest timers at all. Only on the way to done,
   // never on un-ticking a mistake.
   const onToggleSetDone = useCallback((exId, idx) => {
-    let becameDone = false;
+    const arr = setsRef.current[exId];
+    const cur = arr && arr[idx];
+    const becameDone = !!cur && cur.done === false;
     setSets((prev) => ({
       ...prev,
-      [exId]: prev[exId].map((s, i) => {
-        if (i !== idx) return s;
-        becameDone = s.done === false;
-        return { ...s, done: becameDone };
-      }),
+      [exId]: prev[exId].map((s, i) => (i === idx ? { ...s, done: becameDone } : s)),
     }));
     if (becameDone && settingsRef.current.autoRestTimer !== false) {
       const ex = exercisesRef.current.find((e) => e.id === exId);
@@ -8745,6 +8788,12 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
       logged.push(entry);
     }
 
+    // Tallied per set, not per exercise, against the set in the same slot
+    // last time this exercise was done — the same red/amber/green a set's
+    // border already shows live, rolled up into one shape for the finish
+    // screen.
+    const toneTally = { up: 0, amber: 0, down: 0 };
+
     const total = logged.length;
     // Superset membership is stored on the session as groups of ids, which
     // says nothing to an exercise looking back at its own history. Resolve
@@ -8771,6 +8820,17 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
       if (ex.notes) histEntry.notes = ex.notes;
       if (supersetPartners[ex.id]) histEntry.supersetWith = supersetPartners[ex.id];
       const prevHist = (await safeGet(`ex-history:${ex.id}`)) || [];
+      const lastForTone = prevHist.length ? prevHist[prevHist.length - 1] : null;
+      const lastSetsForTone =
+        lastForTone && lastForTone.sets && lastForTone.sets.length
+          ? lastForTone.sets
+          : lastForTone
+          ? [{ weight: lastForTone.weight, reps: lastForTone.reps }]
+          : [];
+      ex.sets.forEach((s, i) => {
+        const tone = setProgressTone(s, lastSetsForTone[i]);
+        if (tone) toneTally[tone] += 1;
+      });
       const newHist = sortByAt([...prevHist, histEntry]).slice(-20);
       await safeSet(`ex-history:${ex.id}`, newHist);
 
@@ -8802,7 +8862,15 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
     let session = null;
     if (logged.length > 0) {
       const prevSessions = (await safeGet("workout-history")) || [];
-      session = { id: `${date}-${Date.now()}`, date, at, split, exercises: logged, supersets: supersets.length ? supersets : undefined };
+      session = {
+        id: `${date}-${Date.now()}`,
+        date,
+        at,
+        split,
+        exercises: logged,
+        supersets: supersets.length ? supersets : undefined,
+        toneTally,
+      };
       if (programmeCtx) {
         session.programmeId = programmeCtx.programmeId;
         session.dayKey = programmeCtx.dayKey;
@@ -9179,6 +9247,77 @@ function StravaShareButton({ session, unit, compact }) {
   );
 }
 
+// A donut, not a bar list — three raw counts rarely add up to anything
+// meaningful on their own, but the shape of a session (mostly green with one
+// red wedge) reads in a glance the way a column of numbers never does. Each
+// wedge is the same red/amber/green a set's border showed live, compared to
+// the same slot last time this exercise was done.
+function SessionToneChart({ tally }) {
+  const rows = [
+    { key: "up", label: "More reps", color: STAGE_COLORS.green, value: tally.up || 0 },
+    { key: "amber", label: "Held", color: STAGE_COLORS.amber, value: tally.amber || 0 },
+    { key: "down", label: "Fewer reps", color: STAGE_COLORS.red, value: tally.down || 0 },
+  ];
+  const total = rows.reduce((n, r) => n + r.value, 0);
+  if (total === 0) return null;
+
+  const size = 128;
+  const stroke = 20;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  let cumulative = 0;
+
+  return (
+    <div style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 14 }}>
+        <PieChart size={14} /> Session Breakdown
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={COLORS.surfaceRaised} strokeWidth={stroke} />
+          <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+            {rows
+              .filter((row) => row.value > 0)
+              .map((row) => {
+                const dash = (row.value / total) * c;
+                const el = (
+                  <circle
+                    key={row.key}
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={r}
+                    fill="none"
+                    stroke={row.color}
+                    strokeWidth={stroke}
+                    strokeDasharray={`${dash} ${c - dash}`}
+                    strokeDashoffset={-cumulative}
+                  />
+                );
+                cumulative += dash;
+                return el;
+              })}
+          </g>
+          <text x={size / 2} y={size / 2 - 3} textAnchor="middle" fill={COLORS.text} fontSize={20} fontFamily="'Oswald', sans-serif">
+            {total}
+          </text>
+          <text x={size / 2} y={size / 2 + 14} textAnchor="middle" fill={COLORS.textDim} fontSize={9.5} fontFamily="'Oswald', sans-serif" letterSpacing={1}>
+            SETS
+          </text>
+        </svg>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+          {rows.map((row) => (
+            <div key={row.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 3, background: row.color, flexShrink: 0 }} />
+              <span style={{ color: COLORS.text, flex: 1 }}>{row.label}</span>
+              <span style={{ color: COLORS.textDim, fontFamily: "'JetBrains Mono', monospace" }}>{row.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DoneScreen({ onHome, newPBs, programmeInfo, session, settings }) {
   return (
     <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28 }}>
@@ -9231,6 +9370,8 @@ function DoneScreen({ onHome, newPBs, programmeInfo, session, settings }) {
           ))}
         </div>
       )}
+
+      {session && session.toneTally && <SessionToneChart tally={session.toneTally} />}
 
       {settings && settings.stravaShare && session && (
         <div style={{ width: "100%", marginBottom: 16 }}>
