@@ -1,6 +1,39 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, Minus, Check, Dumbbell, Clock, Trophy, History as HistoryIcon, Timer, Pause, Play, SkipForward, Lock, RotateCcw, Bookmark, TrendingUp, Trash2, Pencil, X, ChevronUp, ChevronDown, Settings as SettingsIcon, Sparkles, User, BookOpen, PieChart } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Minus, Check, Dumbbell, Clock, Trophy, History as HistoryIcon, Timer, Pause, Play, SkipForward, Lock, RotateCcw, Bookmark, TrendingUp, Trash2, Pencil, X, ChevronUp, ChevronDown, Settings as SettingsIcon, Sparkles, User, BookOpen, PieChart, Footprints, Bike, Activity } from "lucide-react";
 import { FRONT_MUSCLES, BACK_MUSCLES } from "body-muscles";
+
+/* Preferences that pure helpers need but cannot be handed.
+
+   Recovery windows and the history cap are read deep inside functions that
+   take a muscle or a set list and nothing else — threading settings down to
+   every one of them would mean changing dozens of signatures to carry a
+   value that is the same everywhere. The palette has the same problem and
+   solves it with a module object rewritten when settings change (see
+   applyTheme); these follow it rather than inventing a second pattern. */
+const TRAINING = { historyDepth: 20, recoveryPace: 1 };
+
+// How much longer a muscle is treated as needing. Someone who recovers fast
+// and trains a muscle every third day is not served by a table that says
+// otherwise, and someone older or on a deficit is not served by rushing them.
+const RECOVERY_PACES = [
+  { value: "faster", label: "Faster", factor: 0.75, desc: "Muscles read as ready about a quarter sooner." },
+  { value: "normal", label: "Normal", factor: 1, desc: "The research-backed windows, unchanged." },
+  { value: "slower", label: "Slower", factor: 1.35, desc: "A third longer before a muscle reads as ready." },
+];
+
+function applyTrainingPrefs(settings) {
+  const s = settings || {};
+  const depth = parseInt(s.historyDepth, 10);
+  TRAINING.historyDepth = Number.isFinite(depth) && depth > 0 ? depth : 20;
+  const pace = RECOVERY_PACES.find((p) => p.value === s.recoveryPace);
+  TRAINING.recoveryPace = pace ? pace.factor : 1;
+}
+
+// Every per-exercise history write trims to the same depth, so the cap is
+// asked for rather than repeated as a literal at each call site.
+function capHistory(list) {
+  return (list || []).slice(-TRAINING.historyDepth);
+}
 
 /* ---------------------------------------------------------------
    DATA
@@ -235,7 +268,7 @@ const SECONDARY_MUSCLES = {
    method in the source table.
 --------------------------------------------------------------- */
 
-/* CALISTHENICS — one movement, three ways to load it.
+/* CALISTHENICS — one movement, several ways to load it.
 
    A dip done on the assist machine, unloaded, and with a plate hanging off
    you is the same movement at three different loads. Treating those as
@@ -243,15 +276,40 @@ const SECONDARY_MUSCLES = {
    flat; treating the load as a choice keeps the history in one place and
    makes the progression visible.
 
-   The three are only offered where all three are genuinely how people load
-   that movement — there is an assist machine or a band for it, and there is
-   somewhere to hang a plate. Bench dips and hanging leg raises take weight
-   but nobody assists them, so they are not in here. */
+   Assistance is only offered where it genuinely exists — an assist machine
+   or a band for that movement. Nobody assists a hanging leg raise or a
+   bench dip, so those get the two-way choice instead of a third option
+   that would never be picked. Either way the defining trait is the same:
+   the load is your own body, so an empty weight column means bodyweight
+   rather than nothing, and the charts have to add the lifter in. */
 const CALISTHENIC_LOADINGS = ["Bodyweight", "Assisted", "Weighted"];
-const CALISTHENIC_IDS = new Set(["dips", "pull-ups", "push-up", "nordic-curl"]);
+const BODYWEIGHT_LOADINGS = ["Bodyweight", "Weighted"];
+
+const CALISTHENIC_LOADING_BY_ID = {
+  "dips": CALISTHENIC_LOADINGS,
+  "pull-ups": CALISTHENIC_LOADINGS,
+  "push-up": CALISTHENIC_LOADINGS,
+  "nordic-curl": CALISTHENIC_LOADINGS,
+  // Hung, propped or braced against your own weight, with a plate, a
+  // dumbbell between the feet or a belt as the only way to add to it.
+  "hanging-leg-raise": BODYWEIGHT_LOADINGS,
+  "reverse-crunch": BODYWEIGHT_LOADINGS,
+  "ab-wheel": BODYWEIGHT_LOADINGS,
+  "plank": BODYWEIGHT_LOADINGS,
+  "dead-hang": BODYWEIGHT_LOADINGS,
+  "seated-dips": BODYWEIGHT_LOADINGS,
+  "back-extension": BODYWEIGHT_LOADINGS,
+  "glute-ham-raise": BODYWEIGHT_LOADINGS,
+};
+
+// The loadings offered for a bodyweight movement, or null for everything
+// else — which is also the test for whether an exercise is one of these.
+function loadingsFor(id) {
+  return CALISTHENIC_LOADING_BY_ID[id] || null;
+}
 
 function isCalisthenic(id) {
-  return CALISTHENIC_IDS.has(id);
+  return !!CALISTHENIC_LOADING_BY_ID[id];
 }
 
 /* Which of the three a logged set was, including for sessions recorded
@@ -261,10 +319,26 @@ function isCalisthenic(id) {
    only have meant unloaded. That is right for every old row and needs no
    schema change. */
 function loadingOf(exId, method, weight) {
-  if (!isCalisthenic(exId)) return null;
-  if (CALISTHENIC_LOADINGS.includes(method)) return method;
+  const loadings = loadingsFor(exId);
+  if (!loadings) return null;
+  if (loadings.includes(method)) return method;
   const w = parseFloat(weight);
   return Number.isFinite(w) && w > 0 ? "Weighted" : "Bodyweight";
+}
+
+/* A set carrying no external load — blank, or a zero typed into a weight
+   box on a movement that never needed one. Both mean the same thing and
+   both should read as bodyweight: "0kg × 7" is not something anybody did. */
+function isUnloadedSet(weight) {
+  if (weight === "" || weight === null || weight === undefined) return true;
+  const w = parseFloat(weight);
+  return Number.isFinite(w) && w <= 0;
+}
+
+/* One set as it reads in a summary line. */
+function formatSet(weight, reps, unit) {
+  const r = reps || "–";
+  return isUnloadedSet(weight) ? `BW×${r}` : `${weight}${unit}×${r}`;
 }
 
 /* Bodyweight in the unit the app is currently logging in.
@@ -319,13 +393,9 @@ function bodyweightOnOrBefore(dateStr, history, current, unit) {
 
 const EXERCISE_METHODS = {
   "bench-press": ["Barbell", "Dumbbell", "Smith Machine", "Machine"],
-  // Dips are one movement done three ways, so how you load them is a
-  // choice on the exercise rather than three exercises. Generated days
-  // therefore always programme "Dips" and leave the rest to you.
-  "dips": CALISTHENIC_LOADINGS,
-  "pull-ups": CALISTHENIC_LOADINGS,
-  "push-up": CALISTHENIC_LOADINGS,
-  "nordic-curl": CALISTHENIC_LOADINGS,
+  // Bodyweight movements are not listed here — their choices come from
+  // CALISTHENIC_LOADING_BY_ID, so that how a dip is loaded is defined in
+  // one place rather than kept in step across two tables.
   "incline-press": ["Dumbbell", "Barbell", "Smith Machine", "Machine"],
   "bent-over-row": ["Barbell", "Dumbbell", "Smith Machine"],
   "chest-supported-row": ["Machine", "Dumbbell"],
@@ -364,7 +434,7 @@ const EXERCISE_METHODS = {
 // The implements offered for an exercise, or an empty list where the
 // movement only comes one way.
 function methodsFor(id) {
-  return EXERCISE_METHODS[id] || [];
+  return loadingsFor(id) || EXERCISE_METHODS[id] || [];
 }
 
 // First entry is the preferred one from the source table.
@@ -735,6 +805,52 @@ const APP_VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0
 const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
 const RELEASE_NOTES = [
+  {
+    version: "1.23.0",
+    date: "September 2026",
+    headline: "Log effort the way you already think about it \u2014 and log the days you do not lift.",
+    items: [
+      {
+        title: "Runs, walks and rides, at the foot of Home",
+        body: "A small panel under Stats for the training that is not lifting. Log a time and a distance and it works out your pace; add an effort from RPE 1 to 10 and the readiness map takes it into account — a hard run leaves quads, calves and hamstrings needing longer, a walk barely registers, and \"Other\" is timed without the app pretending to know what it worked. None of it touches your set counts, weekly volume or training log.",
+      },
+      {
+        title: "RIR or RPE, your choice",
+        body: "The circle beside every set can now be read either way: reps in reserve as before, or RPE out of 10. Settings \u2192 Training Defaults. They are the same measurement counted from opposite ends \u2014 2 reps left is an RPE 8 \u2014 so this only changes the labels. Nothing already logged is rewritten, the readiness map keeps reading it exactly as it did, and switching back shows your whole history in the old scale again.",
+      },
+    ],
+  },
+  {
+    version: "1.22.0",
+    date: "September 2026",
+    headline: "Progress charts draw the actual trend, and stop letting one odd session wreck the view.",
+    items: [
+      {
+        title: "A trend line on every progress chart",
+        body: "A straight blue line through your history showing which way a lift is really going, with the total change over the period beside it.",
+      },
+      {
+        title: "Odd sessions no longer bend the picture",
+        body: "The same lift loaded a different way — an incline press taken on a barbell rather than dumbbells — reads heavier without being stronger, and a mistyped weight reads heavier still. Both are now spotted and left off the chart entirely, so the work you actually did fills it instead of being squashed into the bottom by one odd session. The count of anything hidden is shown next to the trend, and nothing is changed or removed from your history.",
+      },
+      {
+        title: "Your weight goal on the weight chart",
+        body: "A dotted blue line across the bodyweight graph marking the goal you set, so you can see how far off it you are at a glance.",
+      },
+      {
+        title: "Weight only needs entering once",
+        body: "Personal Info and Weight Tracking sit on the same screen and both record your weight. Update either and the other now follows immediately.",
+      },
+      {
+        title: "Training Defaults — the numbers are yours now",
+        body: "Settings → Training Defaults. Rest lengths for compounds and for isolation work, anywhere from 30 seconds to 10 minutes. Whether the timer starts itself, beeps, and buzzes — a gym is loud and a phone is usually in a pocket, so the buzz is new. How many set rows an exercise opens with. How fast you personally recover, which shifts the whole readiness map without flattening the difference between chest and side delts. And how far back the per-exercise history goes, up from a fixed 20 sessions to as many as 250. The three rest switches moved off the main Settings list to sit beside the rest lengths, so that list is shorter than it was.",
+      },
+      {
+        title: "Bodyweight lifts know they are bodyweight lifts",
+        body: "Hanging leg raises, planks, ab wheel, reverse crunches, dead hangs, bench dips, back extensions and glute-ham raises now offer Bodyweight or Weighted, the same way dips and pull-ups already did. On Bodyweight the weight box becomes a BW tile instead of an empty field, and the progress chart counts you rather than plotting nothing.",
+      },
+    ],
+  },
   {
     version: "1.21.0",
     date: "September 2026",
@@ -1371,8 +1487,8 @@ const TOUR_DEMO = (() => {
     }
   }
   sessions.sort((a, b) => (a.at < b.at ? -1 : 1));
-  // Per-exercise history is capped at 20 elsewhere in the app, so match it.
-  Object.keys(exHistory).forEach((k) => { exHistory[k] = exHistory[k].slice(-20); });
+  // Per-exercise history is capped elsewhere in the app, so match it.
+  Object.keys(exHistory).forEach((k) => { exHistory[k] = capHistory(exHistory[k]); });
   const bodyweight = [];
   for (let w = 26; w >= 0; w--) {
     const d = new Date();
@@ -1881,12 +1997,12 @@ function manageSubscriptionUrl() {
 }
 
 /* ---------------------------------------------------------------
-   REPS IN RESERVE
+   EFFORT — REPS IN RESERVE, OR RPE
 
    Weight and reps alone cannot tell a set taken to failure from one that
    stopped four short, and those two cost wildly different amounts of
-   recovery. RIR is the cheapest way to capture that: one tap, four
-   choices, logged per set.
+   recovery. One tap per set is the cheapest way to capture that, on
+   whichever of the two scales the lifter already thinks in.
 
    It feeds the readiness map. A muscle trained to failure genuinely needs
    longer than one worked comfortably, so the session's hardest set picks
@@ -1901,6 +2017,59 @@ const RIR_OPTIONS = [
   { value: 2, label: "2", desc: "2 left" },
   { value: 3, label: "3+", desc: "3 or more left" },
 ];
+
+/* RPE is the same measurement counted from the other end: RPE = 10 − RIR.
+   A set with two reps left is an RPE 8 and a 2 RIR, and no lifter means
+   anything different by the two.
+
+   So the choice is a display, not a second field. Sets keep storing `rir`
+   whichever scale is on screen, which is what makes it safe: the readiness
+   map, every backup ever exported, and a year of already-logged history all
+   keep working, switching scales mid-programme loses nothing, and a lifter
+   who logs in RPE can hand their file to one who reads RIR.
+
+   Below 8 the scale stops being useful for hypertrophy work and RPE users
+   stop distinguishing, so 3+ RIR is shown as "≤7" rather than pretending to
+   a precision the tap never had. The order is reversed because RPE is read
+   upwards — 7 is easy, 10 is failure — while RIR counts down to nothing. */
+const RPE_OPTIONS = [
+  { value: 3, label: "≤7", desc: "3 or more reps left" },
+  { value: 2, label: "8", desc: "2 reps left" },
+  { value: 1, label: "9", desc: "1 rep left" },
+  { value: 0, label: "10", desc: "Max effort — nothing left" },
+];
+
+const EFFORT_SCALES = [
+  {
+    value: "rir",
+    name: "RIR",
+    full: "Reps in Reserve",
+    options: RIR_OPTIONS,
+    desc: "How many reps you could still have done. 0 is failure.",
+    sweep: "hardest to easiest",
+  },
+  {
+    value: "rpe",
+    name: "RPE",
+    full: "Rate of Perceived Exertion",
+    options: RPE_OPTIONS,
+    desc: "How hard the set was, out of 10. 10 is failure.",
+    sweep: "easiest to hardest",
+  },
+];
+
+function effortScaleOf(settings) {
+  const key = (settings || {}).effortScale;
+  return EFFORT_SCALES.find((s) => s.value === key) || EFFORT_SCALES[0];
+}
+
+// The label a stored effort value wears on the scale in use, or null when
+// nothing was logged for that set.
+function effortLabel(value, scale) {
+  if (value === null || value === undefined || value === "") return null;
+  const opt = (scale || EFFORT_SCALES[0]).options.find((o) => o.value === Number(value));
+  return opt || null;
+}
 
 // The lowest RIR logged across an exercise's sets, or null if none were.
 // The hardest set is what sets the recovery cost, not an average — one
@@ -2097,12 +2266,9 @@ function stravaSummary(session, unit) {
 
   const lines = exercises.map((ex) => {
     const sets = (ex.sets || [])
-      .map((st) => {
-        const reps = st.reps || "–";
-        // A blank weight is bodyweight work, which is what the card showed
-        // while it was being logged.
-        return st.weight ? `${st.weight}${u}×${reps}` : `BW×${reps}`;
-      })
+      // A blank weight is bodyweight work, which is what the card showed
+      // while it was being logged.
+      .map((st) => formatSet(st.weight, st.reps, u))
       .join(", ");
     const how = [ex.method, ex.brand, ex.grip].filter(Boolean).join(" · ");
     return `${ex.name}${how ? ` (${how})` : ""} — ${sets}`;
@@ -2462,7 +2628,7 @@ const MIGRATIONS = [
       if (target !== id) await safeDelete(key);
     }
     for (const [id, rows] of Object.entries(merged)) {
-      const sorted = sortByAt(rows).slice(-20);
+      const sorted = capHistory(sortByAt(rows));
       await safeSet(`ex-history:${id}`, sorted);
     }
 
@@ -2587,7 +2753,7 @@ const MIGRATIONS = [
       if (target !== id) await safeDelete(key);
     }
     for (const [id, rows] of Object.entries(merged)) {
-      if (id === "dips") await safeSet(`ex-history:${id}`, sortByAt(rows).slice(-20));
+      if (id === "dips") await safeSet(`ex-history:${id}`, capHistory(sortByAt(rows)));
     }
 
     // The bodyweight and weighted versions set records on different scales,
@@ -2687,7 +2853,7 @@ const MIGRATIONS = [
       if (target !== id) await safeDelete(key);
     }
     for (const [id, rows] of Object.entries(merged)) {
-      if (id === "squat") await safeSet(`ex-history:${id}`, sortByAt(rows).slice(-20));
+      if (id === "squat") await safeSet(`ex-history:${id}`, capHistory(sortByAt(rows)));
     }
 
     // The back squat is the one the PB was tracked against, so it wins where
@@ -2774,11 +2940,27 @@ function todayStr() {
 // oldest-first. Returns the new history array so callers holding it in state can
 // refresh. Both the Personal Info stats panel and the weight-tracking panel go
 // through here, so their storage shape can't drift apart.
+// Both panels sit on the same screen, so a weight typed into one has to show
+// up in the other without a trip back to the home screen. They each hold their
+// own state, so storage being shared is not enough — the write has to say so.
+const bodyweightListeners = new Set();
+function onBodyweightChange(fn) {
+  bodyweightListeners.add(fn);
+  return () => bodyweightListeners.delete(fn);
+}
+
 async function upsertBodyweight(record) {
   await safeSet("bodyweight", record);
   const hist = (await safeGet("bodyweight-history")) || [];
   const next = [...hist.filter((h) => h.date !== record.date), record].sort((a, b) => (a.date < b.date ? -1 : 1));
   await safeSet("bodyweight-history", next);
+  bodyweightListeners.forEach((fn) => {
+    try {
+      fn(record, next);
+    } catch (e) {
+      /* one panel failing to refresh must not stop the others */
+    }
+  });
   return next;
 }
 
@@ -2881,7 +3063,11 @@ function hoursSince(at) {
 // 0 or 1 RIR; `direct` means the muscle was what the exercise was for.
 function recoveryHoursFor(muscle, direct, hard) {
   const w = RECOVERY_WINDOWS[muscle] || DEFAULT_RECOVERY_WINDOW;
-  return w[(direct ? 0 : 2) + (hard ? 0 : 1)];
+  // The table's shape is the research — which muscles take longer, and how
+  // much direct hard work costs over indirect easy work. How fast a given
+  // body moves through it is not, so the pace scales the whole table rather
+  // than letting anyone edit sixty numbers one at a time.
+  return w[(direct ? 0 : 2) + (hard ? 0 : 1)] * TRAINING.recoveryPace;
 }
 
 /* Indirect work counts, but not as much.
@@ -2968,7 +3154,114 @@ function trainedAgoLabel(at) {
 // stale cache to go out of sync, since it's recomputed from the source of
 // truth every time. Secondary muscles are looked up from the exercise id, so
 // history logged before they existed picks them up with no migration.
-function computeMuscleLastMap(sessions) {
+/* ---------------------------------------------------------------
+   CARDIO & OTHER ACTIVITY
+
+   A run is not a workout in this app's sense — it has no sets, no
+   weights and no exercises — but the legs it just spent an hour on are
+   the same legs Tuesday's squats are for, and a readiness map that
+   ignores that is lying by omission.
+
+   So activities are stored apart from workout-history, where they
+   cannot distort set counts, weekly volume or the training log, and are
+   fed into the readiness map alongside it.
+
+   Effort is RPE 1-10 rather than the four-point tap used for sets: RIR
+   is meaningless for a run, and a gentle walk sits at 3, far below
+   anything the lifting scale bothers to distinguish. The threshold for
+   "hard" is the same one lifting uses, though — RPE 9 is 1 RIR — so one
+   rule decides which recovery column applies, whatever produced the
+   fatigue.
+--------------------------------------------------------------- */
+
+const ACTIVITY_TYPES = [
+  {
+    id: "run",
+    label: "Run",
+    // Impact and repeated eccentric braking: the calves and quads take
+    // the most of it, the posterior chain and shins a real share.
+    primary: ["Quads", "Calves", "Hamstrings"],
+    secondary: ["Glutes", "Shins", "Core"],
+    pace: "min/km",
+  },
+  {
+    id: "walk",
+    label: "Walk",
+    // Nothing here is primary. Walking is what legs are for; treating a
+    // half-hour stroll as direct leg work would paint the map red for
+    // people who simply commute on foot.
+    primary: [],
+    secondary: ["Calves", "Quads", "Glutes"],
+    pace: "min/km",
+  },
+  {
+    id: "cycle",
+    label: "Cycle",
+    // Concentric-dominant and quad-led, with far less eccentric damage
+    // than running, so the hamstrings and calves stay indirect.
+    primary: ["Quads"],
+    secondary: ["Glutes", "Hamstrings", "Calves"],
+    pace: "km/h",
+  },
+  {
+    id: "other",
+    label: "Other",
+    // Rowing, swimming, five-a-side, a climbing session. The app cannot
+    // know what these worked, and guessing would be worse than the gap,
+    // so they are logged and timed but leave the map alone. The form
+    // says so rather than letting it look like a bug.
+    primary: [],
+    secondary: [],
+    pace: null,
+  },
+];
+
+function activityType(id) {
+  return ACTIVITY_TYPES.find((t) => t.id === id) || ACTIVITY_TYPES[0];
+}
+
+// RPE 9 is one rep in reserve, which is what wasHardEffort calls hard.
+const HARD_ACTIVITY_RPE = 9;
+
+// Total seconds of an activity, or null when nothing usable was entered.
+function activitySeconds(a) {
+  const m = parseInt((a || {}).minutes, 10);
+  const s = parseInt((a || {}).seconds, 10);
+  const total = (Number.isFinite(m) ? m : 0) * 60 + (Number.isFinite(s) ? s : 0);
+  return total > 0 ? total : null;
+}
+
+function formatDuration(totalSeconds) {
+  if (!totalSeconds) return "—";
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/* Pace for the kinds of activity people think about in pace.
+
+   Runners and walkers read minutes per kilometre; cyclists read speed.
+   Reporting one as the other is the sort of thing that makes an app feel
+   like it was built by someone who does not do the sport. */
+function activityPace(a) {
+  const secs = activitySeconds(a);
+  const km = parseFloat((a || {}).distance);
+  const type = activityType((a || {}).type);
+  if (!secs || !Number.isFinite(km) || km <= 0 || !type.pace) return null;
+  if (type.pace === "km/h") return `${(km / (secs / 3600)).toFixed(1)} km/h`;
+  const perKm = secs / km;
+  return `${Math.floor(perKm / 60)}:${String(Math.round(perKm % 60)).padStart(2, "0")} /km`;
+}
+
+function activityLabel(a) {
+  const type = activityType((a || {}).type);
+  const name = ((a || {}).name || "").trim();
+  return type.id === "other" && name ? name : type.label;
+}
+
+function computeMuscleLastMap(sessions, activities) {
   const map = {};
   // The effort flag is kept beside the timestamp it belongs to, so a
   // brutal session last week cannot go on stretching the window after an
@@ -2991,7 +3284,39 @@ function computeMuscleLastMap(sessions) {
       for (const m of SECONDARY_MUSCLES[ex.id] || []) touch(m, "secondary", at, hard);
     }
   }
+  // Runs, rides and walks land in the same map through the same door, so
+  // a muscle shows whichever kind of work tired it most recently.
+  for (const a of activities || []) {
+    const at = sessionTime(a);
+    if (at === null) continue;
+    const type = activityType(a.type);
+    const hard = Number(a.rpe) >= HARD_ACTIVITY_RPE;
+    for (const m of type.primary) touch(m, "primary", at, hard);
+    for (const m of type.secondary) touch(m, "secondary", at, hard);
+  }
   return map;
+}
+
+// Every screen that draws readiness reads both halves of it, so the
+// reading is made in one place rather than three that can drift apart.
+async function loadRecoveryMap() {
+  const hist = (await safeGet("workout-history")) || [];
+  const activities = (await safeGet("activity-history")) || [];
+  return computeMuscleLastMap(hist, activities);
+}
+
+async function addActivity(activity) {
+  const list = (await safeGet("activity-history")) || [];
+  const next = [...list, activity].slice(-200);
+  await safeSet("activity-history", next);
+  return next;
+}
+
+async function removeActivity(id) {
+  const list = (await safeGet("activity-history")) || [];
+  const next = list.filter((a) => a.id !== id);
+  await safeSet("activity-history", next);
+  return next;
 }
 
 /* ---------------------------------------------------------------
@@ -3095,6 +3420,15 @@ const DEFAULT_SETTINGS = {
   showBodyMap: true,
   autoRestTimer: true,
   restTimerSound: true,
+  restVibrate: true,
+  // Seconds. The defaults are the science-backed windows described above
+  // REST_SECONDS; these are what a lifter who disagrees can move them to.
+  restCompound: 120,
+  restIsolation: 90,
+  startingSets: 1,
+  effortScale: "rir", // "rir" | "rpe" — a display choice; both store the same value
+  recoveryPace: "normal", // "faster" | "normal" | "slower"
+  historyDepth: 20,
   includeMobility: false,
   randomizeSelection: false,
   weightUnit: "kg",
@@ -3103,6 +3437,7 @@ const DEFAULT_SETTINGS = {
   highContrast: false,
   stravaShare: false,
 };
+
 
 // Simple mode keeps a first-time lifter to the essentials: muscle-tap
 // exercise selection, weight/reps logging, and a rest timer — no
@@ -4127,7 +4462,7 @@ function summariseEntry(entry) {
 // *that* machine, because a number set on a different stack is not a target.
 // If there has never been one, the caller is told so (brandMismatch) and gets
 // the overall most recent alongside it rather than nothing at all.
-function buildLastEntry(hist, brand, method) {
+function buildLastEntry(hist, brand, method, exId) {
   const list = hist || [];
   if (!list.length) return null;
   const wantBrand = normaliseBrand(brand);
@@ -4135,11 +4470,23 @@ function buildLastEntry(hist, brand, method) {
   const overall = list[list.length - 1];
   if (!wantBrand && !wantMethod) return summariseEntry(overall);
 
+  // Entries are stored under a per-exercise key and carry no id of their
+  // own, so the id has to come from the caller — without it a session
+  // logged before the method picker existed matches nothing, and every
+  // previous session gets demoted to "not logged this way before".
+  //
+  // For a bodyweight movement the default is not the right guess either:
+  // the loading of an untagged session is written in its weight column,
+  // where a number could only ever have meant added weight.
+  const methodOf = (h) =>
+    loadingsFor(exId)
+      ? loadingOf(exId, h.method, (getTopSet(h.sets) || {}).weight)
+      : h.method || defaultMethodFor(exId);
   // A dumbbell press is not a target for a barbell press any more than one
   // machine's numbers are a target for another's, so both narrow the search.
   const matches = (h) =>
     (!wantBrand || normaliseBrand(h.brand) === wantBrand) &&
-    (!wantMethod || normaliseMethod(h.method || defaultMethodFor(h.id)) === wantMethod);
+    (!wantMethod || normaliseMethod(methodOf(h)) === wantMethod);
 
   const asked = [method && method.trim(), brand && brand.trim()].filter(Boolean).join(" · ");
   for (let i = list.length - 1; i >= 0; i--) {
@@ -4916,6 +5263,34 @@ function buildOneRMRamp(target, isBodyweight, unit) {
 
 const REST_SECONDS = { compound: 120, isolation: 90 };
 
+/* Those are defaults, not rules — a lifter resting four minutes between
+   heavy squats is not doing it wrong, and neither is one supersetting
+   curls. Settings → Training Defaults moves both.
+
+   The bounds are the part that is not a preference: under thirty seconds
+   the timer is finished before the bar is racked, and past ten minutes it
+   has stopped being a rest and become the end of the session. */
+const REST_RANGE = { min: 30, max: 600, step: 15 };
+
+/* How many empty set rows an exercise opens with.
+
+   One was the only sensible default when it was not a choice — a wrong
+   guess costs a tap to add or a row to ignore — but most people do the
+   same number of sets every time and would rather the rows were waiting. */
+function blankSets(settings) {
+  const n = parseInt((settings || {}).startingSets, 10);
+  const count = Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 1;
+  return Array.from({ length: count }, () => ({ weight: "", reps: "", done: false }));
+}
+
+function restSecondsFor(ex, settings) {
+  const s = settings || {};
+  const key = ex && ex.type === "compound" ? "restCompound" : "restIsolation";
+  const v = parseInt(s[key], 10);
+  if (Number.isFinite(v)) return Math.min(REST_RANGE.max, Math.max(REST_RANGE.min, v));
+  return REST_SECONDS[ex && ex.type] || REST_SECONDS.isolation;
+}
+
 function formatTime(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
@@ -4942,7 +5317,7 @@ function playBeep() {
 // The rest countdown is identical in the workout screen and the 1RM test
 // day, so it lives here rather than being written out twice. Ticks once a
 // second, clears itself on unmount, and beeps on zero if the setting is on.
-function useRestCountdown(timer, setTimer, soundOn) {
+function useRestCountdown(timer, setTimer, soundOn, vibrateOn) {
   useEffect(() => {
     if (!timer || timer.paused || timer.seconds <= 0) return;
     const t = setTimeout(() => {
@@ -4951,13 +5326,19 @@ function useRestCountdown(timer, setTimer, soundOn) {
         const next = prev.seconds - 1;
         if (next <= 0) {
           if (soundOn) playBeep();
+          // A gym is loud and a phone is usually in a pocket, so the buzz
+          // is the half of the alert that actually lands. Guarded because
+          // iOS has no vibrate and some browsers throw on the call.
+          if (vibrateOn && typeof navigator !== "undefined" && navigator.vibrate) {
+            try { navigator.vibrate([180, 90, 180]); } catch (e) { /* not available here */ }
+          }
           return null;
         }
         return { ...prev, seconds: next };
       });
     }, 1000);
     return () => clearTimeout(t);
-  }, [timer, setTimer, soundOn]);
+  }, [timer, setTimer, soundOn, vibrateOn]);
 }
 
 // Ramps up to the last top-set weight: 40% x8, 60% x5, 80% x3.
@@ -5043,7 +5424,7 @@ const COLOUR_SCHEMES = {
       ok: "#7FD858", bad: "#F26A6A",
       stages: { red: "#F26A6A", amber: "#E5B93E", green: "#5FB86B" },
       series: ["#4CC2FF", "#B48CFF", "#7FD858", "#FF7AB6", "#FFC15E", "#5AD6C0"],
-      rir: "#7B8CFF",
+      rir: "#7B8CFF", trend: "#4CC2FF",
     },
     light: {
       accent: "#C2410C", accentDim: "#F0C9B4", onAccent: "#FFFFFF",
@@ -5051,7 +5432,7 @@ const COLOUR_SCHEMES = {
       stages: { red: "#C62F2F", amber: "#8A6400", green: "#2E7D32" },
       neutral: "#BFC3C7",
       series: ["#0B72B5", "#7B3FBF", "#2E7D32", "#C2185B", "#B26A00", "#00796B"],
-      rir: "#3F51B5",
+      rir: "#3F51B5", trend: "#0B72B5",
     },
   },
   redGreen: {
@@ -5063,7 +5444,7 @@ const COLOUR_SCHEMES = {
       ok: "#56B4E9", bad: "#D55E00",
       stages: { red: "#D55E00", amber: "#F0E442", green: "#56B4E9" },
       series: ["#56B4E9", "#009E73", "#F0E442", "#E69F00", "#CC79A7", "#0072B2"],
-      rir: "#0072B2",
+      rir: "#0072B2", trend: "#56B4E9",
     },
     // Not the dark palette darkened. Bright yellow is invisible on white, and
     // simply darkening both warm colours collapsed them into each other: the
@@ -5077,7 +5458,7 @@ const COLOUR_SCHEMES = {
       stages: { red: "#5A1E00", amber: "#CE6E00", green: "#00588C" },
       neutral: "#BFC3C7",
       series: ["#00588C", "#00695C", "#8A6D00", "#A15C00", "#8E3A6B", "#3B2C8C"],
-      rir: "#004C8C",
+      rir: "#004C8C", trend: "#00588C",
     },
   },
   blueYellow: {
@@ -5089,7 +5470,7 @@ const COLOUR_SCHEMES = {
       ok: "#3FAF6B", bad: "#E24A4A",
       stages: { red: "#E24A4A", amber: "#E58FC2", green: "#3FAF6B" },
       series: ["#E24A4A", "#3FAF6B", "#E58FC2", "#8C6D3F", "#C2C2C2", "#7A3FAF"],
-      rir: "#B06BD6",
+      rir: "#B06BD6", trend: "#9B7BFF",
     },
     light: {
       accent: "#A8246B", accentDim: "#F0C2DA", onAccent: "#FFFFFF",
@@ -5097,7 +5478,7 @@ const COLOUR_SCHEMES = {
       stages: { red: "#C62828", amber: "#A83A78", green: "#256B2C" },
       neutral: "#BFC3C7",
       series: ["#C62828", "#256B2C", "#A83A78", "#6D4C1B", "#5A5A5A", "#5B2E8C"],
-      rir: "#6D2E8C",
+      rir: "#6D2E8C", trend: "#5B2E8C",
     },
   },
   mono: {
@@ -5110,7 +5491,7 @@ const COLOUR_SCHEMES = {
       stages: { red: "#6E7378", amber: "#B0B5B9", green: "#F2EFE9" },
       neutral: "#33383D",
       series: ["#F2EFE9", "#B9BDC0", "#8A8F93", "#63686C", "#D6D2CB", "#A0A5A9"],
-      rir: "#B9BDC0",
+      rir: "#B9BDC0", trend: "#8A8F93",
     },
     // The ramp turns over rather than inverting: ready is the most prominent
     // in both themes, which on a dark ground means the brightest and on a
@@ -5121,7 +5502,7 @@ const COLOUR_SCHEMES = {
       stages: { red: "#7E8387", amber: "#4C5054", green: "#191C1F" },
       neutral: "#CBCFD2",
       series: ["#191C1F", "#3A3E42", "#5C6166", "#7E8387", "#2A2E32", "#6A6F73"],
-      rir: "#3A3E42",
+      rir: "#3A3E42", trend: "#7E8387",
     },
   },
 };
@@ -5174,6 +5555,7 @@ const COLORS = {
   onAccent: "#1A1200",
   ok: "#7FD858",
   bad: "#F26A6A",
+  trend: "#4CC2FF",
 };
 
 // Three flat colours rather than a gradient. The question the map answers is
@@ -5229,6 +5611,7 @@ function applyTheme(themeMode, schemeKey, highContrast) {
     onAccent: pal.onAccent,
     ok: pal.ok,
     bad: pal.bad,
+    trend: pal.trend,
   });
   Object.assign(STAGE_COLORS, pal.stages);
   NEUTRAL_BOX.value = pal.neutral || NEUTRAL_DARK;
@@ -5819,6 +6202,268 @@ function BodyMap({ dates }) {
   );
 }
 
+const ACTIVITY_ICONS = {
+  run: <Footprints size={14} />,
+  walk: <Footprints size={14} />,
+  cycle: <Bike size={14} />,
+  other: <Activity size={14} />,
+};
+
+/* The cardio panel at the foot of Home.
+
+   Collapsed to a single line until it is wanted, because most days it is
+   not: the app is a lifting log and this is the thing that sits beside
+   it. Opening it shows the last few activities and the form, and the
+   form is deliberately four fields — type, time, distance, effort —
+   rather than a second workout screen. */
+function ActivityPanel({ onChanged }) {
+  const [list, setList] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [type, setType] = useState("run");
+  const [name, setName] = useState("");
+  const [minutes, setMinutes] = useState("");
+  const [seconds, setSeconds] = useState("");
+  const [distance, setDistance] = useState("");
+  const [rpe, setRpe] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    safeGet("activity-history").then((rows) => {
+      if (!cancelled) setList(rows || []);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const chosen = activityType(type);
+  const draft = { type, minutes, seconds, distance };
+  const secs = activitySeconds(draft);
+  const pace = activityPace(draft);
+  const recent = [...list].sort((a, b) => (sessionTime(a) || 0) - (sessionTime(b) || 0)).reverse();
+
+  function reset() {
+    setAdding(false);
+    setType("run");
+    setName("");
+    setMinutes("");
+    setSeconds("");
+    setDistance("");
+    setRpe(null);
+  }
+
+  async function save() {
+    if (!secs) return;
+    const at = new Date().toISOString();
+    const next = await addActivity({
+      id: `act-${Date.now()}`,
+      date: todayStr(),
+      at,
+      type,
+      name: name.trim() || null,
+      minutes: minutes === "" ? null : Number(minutes),
+      seconds: seconds === "" ? null : Number(seconds),
+      distance: distance === "" ? null : Number(distance),
+      rpe: rpe === null ? null : Number(rpe),
+    });
+    setList(next);
+    reset();
+    // The readiness map above just changed, so Home has to redraw it.
+    if (onChanged) onChanged();
+  }
+
+  async function remove(id) {
+    setList(await removeActivity(id));
+    setConfirmId(null);
+    if (onChanged) onChanged();
+  }
+
+  const field = {
+    background: COLORS.surfaceRaised,
+    border: `1px solid ${COLORS.line}`,
+    borderRadius: 8,
+    color: COLORS.text,
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 13,
+    padding: "9px 10px",
+    boxSizing: "border-box",
+    minWidth: 0,
+  };
+  const legend = { color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 };
+
+  return (
+    <div data-tour="activity-panel" style={{ borderTop: `1px solid ${COLORS.line}`, paddingTop: 24, marginBottom: 40 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "transparent", border: "none", padding: 0, marginBottom: open ? 14 : 0, textAlign: "left" }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <Footprints size={15} color={COLORS.accent} />
+          <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 16, textTransform: "uppercase", letterSpacing: 0.5, color: COLORS.text }}>
+            Cardio &amp; Activity
+          </span>
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {recent.length > 0 && (
+            <span style={{ color: COLORS.textDim, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
+              {recent.length}
+            </span>
+          )}
+          {open ? <ChevronDown size={16} color={COLORS.accent} /> : <ChevronRight size={16} color={COLORS.textDim} />}
+        </span>
+      </button>
+
+      {open && (
+        <>
+          {recent.length === 0 && !adding && (
+            <div style={{ color: COLORS.textDim, fontSize: 12.5, lineHeight: 1.5, marginBottom: 12 }}>
+              Runs, walks and rides, with a time and an effort. They stay out of your lifting stats, but the legs they tired show on the readiness map above.
+            </div>
+          )}
+
+          {recent.slice(0, 4).map((a) => {
+            const p = activityPace(a);
+            return (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: "11px 13px", marginBottom: 8 }}>
+                <span style={{ color: COLORS.accent, flexShrink: 0, display: "flex" }}>{ACTIVITY_ICONS[a.type] || ACTIVITY_ICONS.other}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 13.5, textTransform: "uppercase", lineHeight: 1.2 }}>
+                    {activityLabel(a)}
+                  </span>
+                  <span style={{ display: "block", color: COLORS.textDim, fontSize: 11, fontFamily: "'JetBrains Mono', monospace", marginTop: 3 }}>
+                    {a.date} · {formatDuration(activitySeconds(a))}
+                    {a.distance ? ` · ${a.distance}km` : ""}
+                    {p ? ` · ${p}` : ""}
+                    {a.rpe ? ` · RPE ${a.rpe}` : ""}
+                  </span>
+                </span>
+                {confirmId === a.id ? (
+                  <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => setConfirmId(null)} style={{ padding: "6px 9px", borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.textDim, fontSize: 11, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
+                      Cancel
+                    </button>
+                    <button onClick={() => remove(a.id)} style={{ padding: "6px 9px", borderRadius: 8, border: "none", background: COLORS.bad, color: "#fff", fontSize: 11, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>
+                      Delete
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(a.id)}
+                    title="Delete activity"
+                    aria-label={`Delete ${activityLabel(a)}`}
+                    style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {!adding ? (
+            <button
+              onClick={() => setAdding(true)}
+              style={{ width: "100%", marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: "transparent", border: `1px dashed ${COLORS.line}`, borderRadius: 12, padding: "12px 0", color: COLORS.textDim, fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
+            >
+              <Plus size={14} /> Log an activity
+            </button>
+          ) : (
+            <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.accent}`, borderRadius: 14, padding: 14, marginTop: 4 }}>
+              <div style={legend}>Activity</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 12 }}>
+                {ACTIVITY_TYPES.map((t) => {
+                  const active = type === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setType(t.id)}
+                      style={{ padding: "9px 0", borderRadius: 10, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 11.5, textTransform: "uppercase" }}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {type === "other" && (
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="What was it? e.g. Rowing"
+                  style={{ ...field, width: "100%", marginBottom: 12 }}
+                />
+              )}
+
+              <div style={legend}>Time{chosen.pace ? " and distance" : ""}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <input type="number" inputMode="numeric" placeholder="min" value={minutes} onChange={(e) => setMinutes(e.target.value)} style={{ ...field, flex: 1 }} />
+                <input type="number" inputMode="numeric" placeholder="sec" value={seconds} onChange={(e) => setSeconds(e.target.value)} style={{ ...field, flex: 1 }} />
+                {chosen.pace && (
+                  <input type="number" inputMode="decimal" placeholder="km" value={distance} onChange={(e) => setDistance(e.target.value)} style={{ ...field, flex: 1 }} />
+                )}
+              </div>
+              {pace && (
+                <div style={{ color: COLORS.accent, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", marginTop: -6, marginBottom: 12 }}>
+                  {formatDuration(secs)} · {pace}
+                </div>
+              )}
+
+              <div style={legend}>Effort — RPE</div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => {
+                  const active = rpe === n;
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => setRpe(active ? null : n)}
+                      aria-label={`RPE ${n}`}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: 32,
+                        borderRadius: 8,
+                        padding: 0,
+                        border: `1.5px solid ${active ? effortColor() : COLORS.line}`,
+                        background: active ? effortColor() : "transparent",
+                        color: active ? "#10142B" : COLORS.textDim,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 11.5,
+                      }}
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ color: COLORS.textDim, fontSize: 11, lineHeight: 1.45, marginBottom: 12 }}>
+                {chosen.primary.length || chosen.secondary.length
+                  ? `${rpe >= HARD_ACTIVITY_RPE ? "At RPE 9 or 10 this counts as hard work" : "Below RPE 9 this counts as work with something left"} on ${[...chosen.primary, ...chosen.secondary].join(", ")}.`
+                  : "Logged and timed, but the readiness map is left alone — the app has no way to know what this worked."}
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={reset}
+                  style={{ flex: 1, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "11px 0", color: COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={save}
+                  disabled={!secs}
+                  style={{ flex: 2, background: secs ? COLORS.accent : COLORS.surfaceRaised, border: secs ? "none" : `1px solid ${COLORS.line}`, borderRadius: 10, padding: "11px 0", color: secs ? COLORS.onAccent : COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
+                >
+                  {secs ? `Save ${formatDuration(secs)}` : "Enter a time"}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartTemplate, onResumeWorkout, onViewSettings, onViewSuggested, onViewVolume, onViewStreak, onViewOneRM, onViewExerciseDb, onOpenProgramme, onStartProgrammeDay, onViewProgrammeStats, onNewProgramme, reloadKey, activeProgramme, settings, subscribed, graceDaysLeft, onViewPaywall }) {
   const [dates, setDates] = useState({});
   const [loading, setLoading] = useState(true);
@@ -5832,6 +6477,9 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
   const [finishedProgrammes, setFinishedProgrammes] = useState([]);
   const [showFinished, setShowFinished] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  // Bumped when an activity is logged or deleted, so the readiness map
+  // redraws without a full screen reload.
+  const [activityTick, setActivityTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -5846,7 +6494,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
       if (cancelled) return;
       setBodyweight(bw || null);
       setFinishedProgrammes([...finished].reverse());
-      const map = computeMuscleLastMap(hist);
+      const map = await loadRecoveryMap();
       setDates(map);
       setRecentSessions([...hist].reverse().slice(0, 3));
       setTemplates(tpls);
@@ -5877,7 +6525,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, activityTick]);
 
   async function discardUnfinished() {
     await safeDelete("in-progress-workout");
@@ -6225,6 +6873,8 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
           ))}
         </div>
       </div>
+
+      <ActivityPanel onChanged={() => setActivityTick((n) => n + 1)} />
     </div>
   );
 }
@@ -7254,9 +7904,9 @@ function SelectScreen({ split, settings, onBack, onContinue, onContinueSpecific 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const hist = (await safeGet("workout-history")) || [];
+      const map = await loadRecoveryMap();
       if (!cancelled) {
-        setRecovery(computeMuscleLastMap(hist));
+        setRecovery(map);
         setLoading(false);
       }
     }
@@ -7652,28 +8302,32 @@ function setToneStyle(tone) {
 // still reads as "weight, reps" at a glance and the effort tag is clearly
 // a different kind of thing. Tapping pops the four choices out beside it
 // instead of opening a dialog — this gets used between sets, one-handed.
-function rirColor() {
+//
+// The palette key stays `rir` because it is a colour, not a scale, and
+// renaming it would invalidate every stored colour scheme for nothing.
+function effortColor() {
   return THEME.rir || COLOUR_SCHEMES.default.dark.rir;
 }
 
-function RirTile({ value, onPick, open, onToggle }) {
+function EffortTile({ value, onPick, open, onToggle, scale }) {
   const setOpen = onToggle;
+  const sc = scale || EFFORT_SCALES[0];
   const set = value !== null && value !== undefined && value !== "";
-  const current = set ? RIR_OPTIONS.find((o) => o.value === Number(value)) : null;
+  const current = effortLabel(value, sc);
 
   return (
     <div style={{ position: "relative", flexShrink: 0 }}>
       <button
         onClick={() => setOpen(!open)}
-        aria-label="Reps in reserve"
-        title={current ? `${current.desc} — tap to change` : "Reps in reserve"}
+        aria-label={sc.full}
+        title={current ? `${current.desc} — tap to change` : sc.full}
         style={{
           width: 30,
           height: 30,
           borderRadius: "50%",
-          border: `1.5px solid ${set ? rirColor() : COLORS.line}`,
-          background: set ? hexToRgba(rirColor(), 0.18) : "transparent",
-          color: set ? rirColor() : COLORS.textDim,
+          border: `1.5px solid ${set ? effortColor() : COLORS.line}`,
+          background: set ? hexToRgba(effortColor(), 0.18) : "transparent",
+          color: set ? effortColor() : COLORS.textDim,
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: set ? 12 : 10,
           display: "flex",
@@ -7682,7 +8336,7 @@ function RirTile({ value, onPick, open, onToggle }) {
           padding: 0,
         }}
       >
-        {set ? current.label : "RIR"}
+        {set && current ? current.label : sc.name}
       </button>
       {open && (
         <>
@@ -7697,13 +8351,13 @@ function RirTile({ value, onPick, open, onToggle }) {
               display: "flex",
               gap: 5,
               background: COLORS.surfaceRaised,
-              border: `1px solid ${rirColor()}`,
+              border: `1px solid ${effortColor()}`,
               borderRadius: 12,
               padding: 6,
               boxShadow: "0 8px 20px rgba(0,0,0,0.45)",
             }}
           >
-            {RIR_OPTIONS.map((o) => {
+            {sc.options.map((o) => {
               const active = set && Number(value) === o.value;
               return (
                 <button
@@ -7714,8 +8368,8 @@ function RirTile({ value, onPick, open, onToggle }) {
                     width: 34,
                     height: 34,
                     borderRadius: "50%",
-                    border: `1.5px solid ${active ? rirColor() : COLORS.line}`,
-                    background: active ? rirColor() : "transparent",
+                    border: `1.5px solid ${active ? effortColor() : COLORS.line}`,
+                    background: active ? effortColor() : "transparent",
                     color: active ? "#10142B" : COLORS.text,
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: 12.5,
@@ -7772,7 +8426,7 @@ function ExerciseCard({
   const method = meta.method || defaultMethodFor(ex.id) || "";
   // Derived here rather than handed down ready-made, so changing the
   // implement or typing a machine name re-points "last time" as you go.
-  const last = buildLastEntry(history[ex.id], isAdvanced ? meta.brand : "", isAdvanced ? method : "");
+  const last = buildLastEntry(history[ex.id], isAdvanced ? meta.brand : "", isAdvanced ? method : "", ex.id);
   // Compounds only, which is what the setting promises. Ramping up to a
   // 5kg lateral raise is noise, and it was appearing on every isolation
   // lift that happened to be first for its muscle.
@@ -7811,12 +8465,16 @@ function ExerciseCard({
   }
 
   const [noteOpen, setNoteOpen] = useState(false);
-  const [openRir, setOpenRir] = useState(null); // index of the set whose RIR popout is open
+  const [openEffort, setOpenEffort] = useState(null); // index of the set whose effort popout is open
+  // Whichever of RIR and RPE this lifter reads. Only the labels differ —
+  // the value written to the set is the same either way.
+  const scale = effortScaleOf(settings);
   const [warmupChecked, setWarmupChecked] = useState(() => new Set());
   // Calisthenics get their own dedicated control instead of being buried in
   // the cog menu: how a dip or a pull-up is loaded is a per-session decision
   // made before the first rep, not a setting you go looking for.
-  const calisthenic = isCalisthenic(ex.id);
+  const loadingOptions = loadingsFor(ex.id) || [];
+  const calisthenic = loadingOptions.length > 0;
   const loading = calisthenic ? loadingOf(ex.id, method, "") : null;
   const [loadingOpen, setLoadingOpen] = useState(false);
   // Asked once per exercise per session, the first time a weight field is
@@ -7979,8 +8637,8 @@ function ExerciseCard({
               <ChevronDown size={14} />
             </button>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-              {CALISTHENIC_LOADINGS.map((opt) => {
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${loadingOptions.length}, 1fr)`, gap: 6 }}>
+              {loadingOptions.map((opt) => {
                 const active = loading === opt;
                 return (
                   <button
@@ -8116,7 +8774,7 @@ function ExerciseCard({
                 <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
                   {last.date} ·{" "}
                   {(last.sets && last.sets.length ? last.sets : [{ weight: last.weight, reps: last.reps }])
-                    .map((s) => `${s.weight || "–"}${s.weight ? settings.weightUnit : ""}×${s.reps || "–"}`)
+                    .map((s) => formatSet(s.weight, s.reps, settings.weightUnit))
                     .join("  ·  ")}
                   {[last.method, last.brand].filter(Boolean).length ? ` on ${[last.method, last.brand].filter(Boolean).join(" · ")}` : ""}
                 </div>
@@ -8139,7 +8797,7 @@ function ExerciseCard({
                 >
                   <span style={{ display: "block", color: COLORS.text, fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.5 }}>
                     {(last.sets && last.sets.length ? last.sets : [{ weight: last.weight, reps: last.reps }])
-                      .map((s) => `${s.weight || "–"}${s.weight ? settings.weightUnit : ""}×${s.reps || "–"}`)
+                      .map((s) => formatSet(s.weight, s.reps, settings.weightUnit))
                       .join("  ·  ")}
                   </span>
                   {repeatable && (
@@ -8263,15 +8921,15 @@ function ExerciseCard({
           style={{
             marginBottom: 8,
             // Dimming an unfinished row also dims anything it opens — opacity
-            // composites the whole subtree — so the RIR popout would render
+            // composites the whole subtree — so the effort popout would render
             // half transparent with the row beneath showing through it. A row
             // being interacted with goes to full strength, which is the right
             // thing to look at anyway. z-index then keeps the popout above the
             // rows below, since the dimmed ones are their own stacking
             // contexts and would otherwise paint over it.
-            opacity: isDone || openRir === i ? 1 : 0.55,
+            opacity: isDone || openEffort === i ? 1 : 0.55,
             position: "relative",
-            zIndex: openRir === i ? 30 : "auto",
+            zIndex: openEffort === i ? 30 : "auto",
           }}
         >
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -8328,10 +8986,11 @@ function ExerciseCard({
               style={{ ...inputBase, width: 62, flexGrow: 0, flexShrink: 0, padding: "5px 6px", boxSizing: "border-box", ...toneStyle }}
             />
             {isAdvanced && (
-              <RirTile
+              <EffortTile
                 value={s.rir}
-                open={openRir === i}
-                onToggle={(v) => setOpenRir(v ? i : null)}
+                scale={scale}
+                open={openEffort === i}
+                onToggle={(v) => setOpenEffort(v ? i : null)}
                 onPick={(v) => onSetChange(ex.id, i, "rir", v)}
               />
             )}
@@ -8411,7 +9070,7 @@ function ExerciseCard({
           gap: 6,
         }}
       >
-        <Timer size={13} /> Start Rest ({Math.floor(REST_SECONDS[ex.type] / 60)}:{String(REST_SECONDS[ex.type] % 60).padStart(2, "0")})
+        <Timer size={13} /> Start Rest ({formatTime(restSecondsFor(ex, settings))})
       </button>
     </div>
   );
@@ -8477,10 +9136,13 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
     });
   }
 
-  useRestCountdown(timer, setTimer, settings.restTimerSound);
+  useRestCountdown(timer, setTimer, settings.restTimerSound, settings.restVibrate);
 
   function startRest(ex) {
-    const total = REST_SECONDS[ex.type] || 90;
+    // From the ref, not the prop: the callbacks that fire this are memoised
+    // with an empty dependency list, so they hold the first startRest this
+    // screen ever made and with it the settings as they were then.
+    const total = restSecondsFor(ex, settingsRef.current);
     setTimer({ label: ex.name, total, seconds: total, paused: false });
   }
   function togglePauseRest() {
@@ -8539,7 +9201,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
                 arr.map((s) => (s.done === undefined ? { ...s, done: false } : s)),
               ])
             )
-          : Object.fromEntries(list.map((ex) => [ex.id, [{ weight: "", reps: "", done: false }]]))
+          : Object.fromEntries(list.map((ex) => [ex.id, blankSets(settings)]))
       );
       if (resumeData) {
         if (resumeData.meta) setMeta(resumeData.meta);
@@ -8719,7 +9381,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
 
   async function addExerciseMidWorkout(ex) {
     setExercises((prev) => reorderByType([...prev, ex]));
-    setSets((prev) => ({ ...prev, [ex.id]: prev[ex.id] || [{ weight: "", reps: "", done: false }] }));
+    setSets((prev) => ({ ...prev, [ex.id]: prev[ex.id] || blankSets(settingsRef.current) }));
     const hist = await safeGet(`ex-history:${ex.id}`);
     setHistory((prev) => ({ ...prev, [ex.id]: hist || [] }));
     setAddPanel(null);
@@ -8831,7 +9493,7 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
         const tone = setProgressTone(s, lastSetsForTone[i]);
         if (tone) toneTally[tone] += 1;
       });
-      const newHist = sortByAt([...prevHist, histEntry]).slice(-20);
+      const newHist = capHistory(sortByAt([...prevHist, histEntry]));
       await safeSet(`ex-history:${ex.id}`, newHist);
 
       if (PB_EXERCISE_IDS.includes(ex.id)) {
@@ -9507,7 +10169,7 @@ function HistoryScreen({ onBack, settings }) {
       };
       const existingIdx = prevHist.findIndex(matchesSession);
       const nextHist = existingIdx === -1
-        ? sortByAt([...prevHist, patch]).slice(-20)
+        ? capHistory(sortByAt([...prevHist, patch]))
         : prevHist.map((h, i) => (i === existingIdx ? { ...h, ...patch } : h));
       await safeSet(`ex-history:${id}`, nextHist);
     }
@@ -9821,7 +10483,65 @@ function metricValue(metric, sets, entry) {
 
 const CHART_PAD = { top: 8, right: 12, bottom: 20, left: 38 };
 
-function SimpleLineChart({ data, dataKey = "weight", height = 200, color }) {
+// Least-squares fit, returned as a slope and intercept over point indices.
+function linearFit(xs, ys) {
+  const n = xs.length;
+  if (n < 3) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (xs[i] - mx) * (ys[i] - my);
+    den += (xs[i] - mx) ** 2;
+  }
+  if (den === 0) return null;
+  const slope = num / den;
+  return { slope, intercept: my - slope * mx };
+}
+
+/* A spike on a lift chart is usually not a sudden jump in strength. It is the
+   same movement loaded a different way — an incline press taken on a barbell
+   reads twenty kilos above the same effort on dumbbells — or a number typed
+   wrong. Neither describes a gradient, so both are marked and left out of the
+   fit while staying on the line: the session happened and the record is right,
+   it just should not be what the trend is drawn through.
+
+   Returns a reason per point, or null where the point is unremarkable. */
+function senseCheck(points, values) {
+  const none = new Array(values.length).fill(null);
+  if (values.length < 5) return none;
+  const flags = [...none];
+
+  // How it was loaded explains most of it, so ask that first.
+  const methods = points.map((p) => p.method || "");
+  const counts = {};
+  methods.forEach((m) => { if (m) counts[m] = (counts[m] || 0) + 1; });
+  const named = Object.keys(counts);
+  if (named.length > 1) {
+    const dominant = named.sort((a, b) => counts[b] - counts[a])[0];
+    methods.forEach((m, i) => { if (m && m !== dominant) flags[i] = m; });
+    // If a third of the chart is "the odd one out", there is no odd one out —
+    // the lift is genuinely trained several ways and no single loading is the
+    // series. Drop that reading, but keep checking the numbers themselves.
+    if (flags.filter(Boolean).length > values.length / 3) flags.fill(null);
+  }
+
+  // Whatever the loading does not account for, judge on spread — median
+  // absolute deviation rather than standard deviation, because one wild
+  // value widens a standard deviation enough to hide itself inside it.
+  const med = (arr) => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const m = med(values);
+  const mad = med(values.map((v) => Math.abs(v - m)));
+  if (mad > 0) {
+    values.forEach((v, i) => {
+      if (!flags[i] && Math.abs(v - m) / (1.4826 * mad) > 3.5) flags[i] = "unusual";
+    });
+  }
+
+  return flags;
+}
+
+function SimpleLineChart({ data, dataKey = "weight", height = 200, color, trend = false, flagOutliers = false, goal = null }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(0);
   const [active, setActive] = useState(null);
@@ -9846,24 +10566,45 @@ function SimpleLineChart({ data, dataKey = "weight", height = 200, color }) {
 
   const stroke = color || COLORS.accent;
   const w = width || 320;
-  const points = (data || []).filter((d) => Number.isFinite(parseFloat(d[dataKey])));
-  if (points.length === 0) return <div ref={ref} style={{ width: "100%", height }} />;
+  const plotted = (data || []).filter((d) => Number.isFinite(parseFloat(d[dataKey])));
+  if (plotted.length === 0) return <div ref={ref} style={{ width: "100%", height }} />;
 
-  const values = points.map((d) => parseFloat(d[dataKey]));
+  const goalVal = Number.isFinite(parseFloat(goal)) ? parseFloat(goal) : null;
+  // A session logged with a different loading, or a weight typed wrong, is not
+  // a point on this curve. It leaves the chart entirely — line, scale and all —
+  // rather than being drawn some quieter way, because one barbell session among
+  // thirty on dumbbells stretches the axis to twice the range actually being
+  // trained in and flattens the real series into the bottom of the chart.
+  // Nothing is removed from stored history; the count is reported beside the
+  // trend so a chart never silently drops work.
+  const allValues = plotted.map((d) => parseFloat(d[dataKey]));
+  const flags = flagOutliers ? senseCheck(plotted, allValues) : new Array(allValues.length).fill(null);
+  const keep = flags.map((f, i) => (f ? -1 : i)).filter((i) => i >= 0);
+  // Hiding so much that nothing is left would be worse than the spikes.
+  const useAll = keep.length < 2;
+  const points = useAll ? plotted : keep.map((i) => plotted[i]);
+  const values = useAll ? allValues : keep.map((i) => allValues[i]);
+  const hidden = plotted.length - points.length;
+
+  const fit = trend ? linearFit(values.map((_, i) => i), values) : null;
   // Matches the old domain of [dataMin - 2, dataMax + 2], but a flat series
-  // would collapse to a zero-height band, so it keeps a minimum spread.
-  const min = Math.min(...values) - 2;
-  const rawMax = Math.max(...values) + 2;
+  // would collapse to a zero-height band, so it keeps a minimum spread. A goal
+  // is part of the domain too, or the line marking it sits off the chart.
+  const domain = goalVal === null ? values : [...values, goalVal];
+  const min = Math.min(...domain) - 2;
+  const rawMax = Math.max(...domain) + 2;
   const max = rawMax > min ? rawMax : min + 4;
   const plotW = Math.max(1, w - CHART_PAD.left - CHART_PAD.right);
   const plotH = Math.max(1, height - CHART_PAD.top - CHART_PAD.bottom);
   const x = (i) => CHART_PAD.left + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
   const y = (v) => CHART_PAD.top + plotH - ((v - min) / (max - min)) * plotH;
+  // A fitted line extended past the plotted points can leave the band.
+  const clampY = (v) => Math.max(CHART_PAD.top, Math.min(height - CHART_PAD.bottom, y(v)));
 
   const ticks = [0, 1, 2, 3].map((i) => min + ((max - min) * i) / 3);
   // Thin the date labels so they never collide on a narrow phone.
   const labelStride = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(plotW / 46))));
-  const path = points.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(values[i]).toFixed(1)}`).join(" ");
+  const path = points.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${clampY(values[i]).toFixed(1)}`).join(" ");
 
   function pick(e) {
     const box = e.currentTarget.getBoundingClientRect();
@@ -9915,10 +10656,43 @@ function SimpleLineChart({ data, dataKey = "weight", height = 200, color }) {
             </text>
           ) : null
         )}
+        {goalVal !== null && (
+          <g>
+            <line
+              x1={CHART_PAD.left}
+              x2={w - CHART_PAD.right}
+              y1={y(goalVal)}
+              y2={y(goalVal)}
+              stroke={COLORS.trend}
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+            />
+            <text x={w - CHART_PAD.right} y={y(goalVal) - 5} textAnchor="end" fill={COLORS.trend} fontSize={10}>
+              goal {goalVal}
+            </text>
+          </g>
+        )}
         <path d={path} fill="none" stroke={stroke} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {fit && (
+          <line
+            x1={x(0)}
+            x2={x(points.length - 1)}
+            y1={clampY(fit.intercept)}
+            y2={clampY(fit.intercept + fit.slope * (points.length - 1))}
+            stroke={COLORS.trend}
+            strokeWidth={2}
+            strokeLinecap="round"
+            opacity={0.9}
+          />
+        )}
         {points.map((d, i) => (
-          <circle key={i} cx={x(i)} cy={y(values[i])} r={active === i ? 5 : 3} fill={stroke} />
+          <circle key={i} cx={x(i)} cy={clampY(values[i])} r={active === i ? 5 : 3} fill={stroke} />
         ))}
+        {fit && (
+          <text x={w - CHART_PAD.right} y={CHART_PAD.top + 9} textAnchor="end" fill={COLORS.trend} fontSize={10.5}>
+            {`trend ${fit.slope >= 0 ? "+" : ""}${(fit.slope * (points.length - 1)).toFixed(1)}${hidden ? ` · ${hidden} hidden` : ""}`}
+          </text>
+        )}
         {active !== null && (
           <line x1={x(active)} x2={x(active)} y1={CHART_PAD.top} y2={height - CHART_PAD.bottom} stroke={COLORS.textDim} strokeDasharray="2 3" />
         )}
@@ -10031,6 +10805,9 @@ function ProgressScreen({ onBack }) {
     })
     .map((h) => ({
       date: String(h.date).slice(5),
+      // Carried so the chart can tell a change of loading from a change of
+      // strength: the same lift on a barbell and on dumbbells is two series.
+      method: h.method || "",
       weight: metricValue(metric, h.sets, {
         exerciseId: selectedId,
         method: h.method,
@@ -10152,7 +10929,7 @@ function ProgressScreen({ onBack }) {
                       : "Log a couple more sessions to see a trend."}
                   </div>
                 ) : (
-                  <SimpleLineChart data={chartData} dataKey="weight" height={200} />
+                  <SimpleLineChart data={chartData} dataKey="weight" height={200} trend flagOutliers />
                 )}
               </div>
             )}
@@ -10365,6 +11142,17 @@ function PersonalStatsPanel() {
       cancelled = true;
     };
   }, []);
+
+  // The weight-tracking panel below writes the same reading.
+  useEffect(
+    () =>
+      onBodyweightChange((record) => {
+        setWeightInput(String(record.value));
+        setWeightUnit(record.unit || "kg");
+        setWeightLogged(record);
+      }),
+    []
+  );
 
   async function save() {
     setSaving(true);
@@ -10605,6 +11393,17 @@ function WeightTrackingPanel() {
     return () => { cancelled = true; };
   }, []);
 
+  // The personal stats panel above writes the same reading.
+  useEffect(
+    () =>
+      onBodyweightChange((record, nextHistory) => {
+        setLogInput(String(record.value));
+        if (record.unit) setUnit(record.unit);
+        setHistory(nextHistory);
+      }),
+    []
+  );
+
   async function persistConfig(next) {
     await safeSet("weight-tracking", { enabled, goal, unit, ...next });
   }
@@ -10714,7 +11513,7 @@ function WeightTrackingPanel() {
           Log your weight on at least two days to see a trend graph.
         </div>
       ) : (
-        <SimpleLineChart data={chartData} dataKey="weight" height={190} />
+        <SimpleLineChart data={chartData} dataKey="weight" height={190} trend goal={goal} />
       )}
     </div>
   );
@@ -11095,7 +11894,7 @@ function OneRMWorkoutScreen({ exerciseId, target, isBodyweight, settings, onBack
   const [timer, setTimer] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useRestCountdown(timer, setTimer, settings.restTimerSound);
+  useRestCountdown(timer, setTimer, settings.restTimerSound, settings.restVibrate);
 
   function startRest(seconds, label) {
     setTimer({ label, total: seconds, seconds, paused: false });
@@ -11117,7 +11916,7 @@ function OneRMWorkoutScreen({ exerciseId, target, isBodyweight, settings, onBack
       .filter((s) => s.reps !== "");
 
     const prevHist = (await safeGet(`ex-history:${exerciseId}`)) || [];
-    await safeSet(`ex-history:${exerciseId}`, [...prevHist, { date, at, sets: loggedSets }].slice(-20));
+    await safeSet(`ex-history:${exerciseId}`, capHistory([...prevHist, { date, at, sets: loggedSets }]));
 
     if (PB_EXERCISE_IDS.includes(exerciseId)) {
       const topSet = getTopSet(loggedSets);
@@ -11511,7 +12310,253 @@ function ColourScreen({ settings, onChange, onBack }) {
   );
 }
 
-function SettingsScreen({ settings, onChange, onBack, onViewColour, onReplayTour, onViewFeatureList, onViewWhatsNew, license, onBuy, onRestore, purchaseBusy, purchaseMsg }) {
+/* ---------------------------------------------------------------
+   TRAINING DEFAULTS
+   The numbers the app was choosing on the lifter's behalf: how long a
+   rest is, how many set rows an exercise opens with, how fast a muscle
+   is treated as recovering, and how far back the per-exercise history
+   goes. Every one of them shipped as a single hardcoded value that was
+   right for most people and wrong for some.
+
+   They live on their own screen rather than as four more rows on
+   Settings. Settings is a list you scan for the one switch you came
+   for, and that only works while it stays a list of switches — a
+   number you nudge up and down is a different kind of control and
+   dilutes it. Two toggles that were only ever about the rest timer
+   came here too, so all of resting is in one place and the main list
+   is shorter than it was.
+--------------------------------------------------------------- */
+
+// A number you nudge rather than type. A gym phone is held one-handed
+// and often through a sleeve, so the targets are big and there is no
+// keyboard to dismiss.
+function StepperRow({ label, desc, value, display, onChange, min, max, step }) {
+  const btn = (dir, icon, disabled) => (
+    <button
+      onClick={() => onChange(Math.min(max, Math.max(min, value + dir * step)))}
+      disabled={disabled}
+      aria-label={dir > 0 ? `Increase ${label}` : `Decrease ${label}`}
+      style={{
+        width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+        background: disabled ? COLORS.surface : COLORS.surfaceRaised,
+        border: `1px solid ${disabled ? COLORS.line : COLORS.accent}`,
+        color: disabled ? COLORS.textDim : COLORS.accent,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      {icon}
+    </button>
+  );
+  return (
+    <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14.5, textTransform: "uppercase" }}>{label}</div>
+          <div style={{ color: COLORS.textDim, fontSize: 11.5, marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {btn(-1, <Minus size={16} />, value <= min)}
+          <div style={{ minWidth: 54, textAlign: "center", color: COLORS.accent, fontFamily: "'JetBrains Mono', monospace", fontSize: 15 }}>
+            {display}
+          </div>
+          {btn(1, <Plus size={16} />, value >= max)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One row of mutually exclusive choices, with the chosen one explaining
+// itself underneath so the difference is legible without tapping each.
+function ChoiceRow({ label, options, value, onChange }) {
+  const chosen = options.find((o) => o.value === value) || options[0];
+  return (
+    <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: "14px 16px" }}>
+      <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14.5, textTransform: "uppercase", marginBottom: 10 }}>{label}</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        {options.map((o) => {
+          const active = chosen.value === o.value;
+          return (
+            <button
+              key={o.value}
+              onClick={() => onChange(o.value)}
+              style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45 }}>{chosen.desc}</div>
+    </div>
+  );
+}
+
+const HISTORY_DEPTHS = [10, 20, 50, 100, 250];
+
+function TrainingScreen({ settings, onChange, onBack }) {
+  const set = (patch) => onChange({ ...settings, ...patch });
+  const num = (key, fallback) => {
+    const v = parseInt(settings[key], 10);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  const depth = num("historyDepth", 20);
+  const chosenScale = effortScaleOf(settings);
+  const sectionLabel = {
+    color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif",
+    letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8,
+  };
+  const group = { padding: "0 20px 22px", display: "flex", flexDirection: "column", gap: 10 };
+
+  return (
+    <div style={{ paddingBottom: 40 }}>
+      <TopBar title="Training Defaults" onBack={onBack} />
+      <div style={{ padding: "0 20px 16px", color: COLORS.textDim, fontSize: 13, lineHeight: 1.5 }}>
+        What the app assumes when you have not said otherwise. None of it changes anything you have already logged.
+      </div>
+
+      <div style={{ padding: "0 20px 8px" }}>
+        <div style={sectionLabel}>Rest Timer</div>
+      </div>
+      <div style={group}>
+        <StepperRow
+          label="Compound Rest"
+          desc="Squats, presses, rows, pull-ups — anything working several muscles at once."
+          value={restSecondsFor({ type: "compound" }, settings)}
+          display={formatTime(restSecondsFor({ type: "compound" }, settings))}
+          onChange={(v) => set({ restCompound: v })}
+          min={REST_RANGE.min}
+          max={REST_RANGE.max}
+          step={REST_RANGE.step}
+        />
+        <StepperRow
+          label="Isolation Rest"
+          desc="Curls, raises, extensions, calves — one muscle, one joint."
+          value={restSecondsFor({ type: "isolation" }, settings)}
+          display={formatTime(restSecondsFor({ type: "isolation" }, settings))}
+          onChange={(v) => set({ restIsolation: v })}
+          min={REST_RANGE.min}
+          max={REST_RANGE.max}
+          step={REST_RANGE.step}
+        />
+        <SettingsToggleRow
+          label="Auto-Start Rest Timer"
+          desc="Start the countdown as soon as you tick a set off — or, with tick boxes hidden, as soon as you enter its reps."
+          value={settings.autoRestTimer !== false}
+          onToggle={() => set({ autoRestTimer: settings.autoRestTimer === false })}
+        />
+        <SettingsToggleRow
+          label="Rest Timer Sound"
+          desc="Play a beep when the rest timer finishes."
+          value={settings.restTimerSound !== false}
+          onToggle={() => set({ restTimerSound: settings.restTimerSound === false })}
+        />
+        <SettingsToggleRow
+          label="Rest Timer Vibration"
+          desc="Buzz when it finishes. A gym is loud and a phone is usually in a pocket, so this is the half you feel."
+          value={settings.restVibrate !== false}
+          onToggle={() => set({ restVibrate: settings.restVibrate === false })}
+        />
+      </div>
+
+      <div style={{ padding: "0 20px 8px" }}>
+        <div style={sectionLabel}>Logging</div>
+      </div>
+      <div style={group}>
+        <StepperRow
+          label="Sets Per Exercise"
+          desc="How many empty rows an exercise opens with. You can always add or ignore more."
+          value={num("startingSets", 1)}
+          display={String(num("startingSets", 1))}
+          onChange={(v) => set({ startingSets: v })}
+          min={1}
+          max={10}
+          step={1}
+        />
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: "14px 16px" }}>
+          <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Effort Scale
+          </div>
+          <div style={{ color: COLORS.textDim, fontSize: 11.5, marginTop: 2, marginBottom: 10, lineHeight: 1.4 }}>
+            Which way you count how hard a set was, on the circle beside every set in Advanced Mode. They are the same measurement from opposite ends, so this only changes the labels — nothing you have logged is rewritten, and switching back shows it all again unchanged.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            {EFFORT_SCALES.map((sc) => {
+              const active = chosenScale.value === sc.value;
+              return (
+                <button
+                  key={sc.value}
+                  onClick={() => set({ effortScale: sc.value })}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}
+                >
+                  {sc.name}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45, marginBottom: 10 }}>
+            {chosenScale.full} — {chosenScale.desc}
+          </div>
+          {/* The labels themselves, in the order they appear in the popout,
+              so the difference is visible before committing to it. */}
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {chosenScale.options.map((o) => (
+              <div
+                key={o.value}
+                title={o.desc}
+                style={{ width: 34, height: 34, borderRadius: "50%", border: `1.5px solid ${effortColor()}`, background: hexToRgba(effortColor(), 0.18), color: effortColor(), fontFamily: "'JetBrains Mono', monospace", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+              >
+                {o.label}
+              </div>
+            ))}
+            <span style={{ color: COLORS.textDim, fontSize: 11, marginLeft: 4, lineHeight: 1.35 }}>
+              {chosenScale.sweep}
+            </span>
+          </div>
+        </div>
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: "14px 16px" }}>
+          <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14.5, textTransform: "uppercase", marginBottom: 4 }}>
+            History Kept Per Exercise
+          </div>
+          <div style={{ color: COLORS.textDim, fontSize: 11.5, marginTop: 2, marginBottom: 10, lineHeight: 1.4 }}>
+            How many past sessions of a lift the progress chart and &ldquo;last time&rdquo; can see. Your workout history and calendar keep everything regardless — this is only the per-exercise list. Raising it takes effect as you log; lowering it trims on the next session of that lift.
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {HISTORY_DEPTHS.map((d) => {
+              const active = depth === d;
+              return (
+                <button
+                  key={d}
+                  onClick={() => set({ historyDepth: d })}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'JetBrains Mono', monospace", fontSize: 12.5 }}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: "0 20px 8px" }}>
+        <div style={sectionLabel}>Recovery</div>
+      </div>
+      <div style={group}>
+        <ChoiceRow
+          label="Recovery Pace"
+          options={RECOVERY_PACES}
+          value={settings.recoveryPace || "normal"}
+          onChange={(v) => set({ recoveryPace: v })}
+        />
+        <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.5 }}>
+          This scales the whole readiness map — chest still takes longer than side delts, and a hard set still costs more than an easy one. It only moves how quickly you personally get through those windows.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsScreen({ settings, onChange, onBack, onViewColour, onViewTraining, onReplayTour, onViewFeatureList, onViewWhatsNew, license, onBuy, onRestore, purchaseBusy, purchaseMsg }) {
   function toggle(key) {
     onChange({ ...settings, [key]: !settings[key] });
   }
@@ -11527,8 +12572,9 @@ function SettingsScreen({ settings, onChange, onBack, onViewColour, onReplayTour
     { key: "showLastSet", label: "Last Top Set", desc: "Show your last top set for each exercise." },
     { key: "showSetTicks", label: "Set Tick Boxes", desc: "Show the tick box beside every set and warm-up. Off is a cleaner list — what you type is still saved either way, but the rest timer stops starting itself." },
     { key: "showBodyMap", label: "Muscle Readiness Map", desc: "Show the body diagram on the home screen." },
-    { key: "autoRestTimer", label: "Auto-Start Rest Timer", desc: "Start the rest countdown as soon as you tick a set off." },
-    { key: "restTimerSound", label: "Rest Timer Sound", desc: "Play a beep when the rest timer finishes." },
+    // Auto-start, sound and vibration moved to Training Defaults, next to
+    // the rest lengths themselves — the timer is one subject, not three
+    // switches scattered down a list.
     { key: "stravaShare", label: "Share to Strava", desc: "Add a share button when you finish a workout and on every past one. It builds your lifts into text, hands them to the share sheet, and opens Strava for you to paste into the activity." },
     { key: "randomizeSelection", label: "Randomize Exercise Selection", desc: "Off: pick exercises in ranked order. On: shuffle for variety." },
   ];
@@ -11578,6 +12624,24 @@ function SettingsScreen({ settings, onChange, onBack, onViewColour, onReplayTour
             </span>
             <span style={{ display: "block", color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.4 }}>
               Light or dark, colour schemes for colour blindness, and high contrast.
+            </span>
+          </span>
+          <ChevronRight size={16} color={COLORS.accent} style={{ flexShrink: 0 }} />
+        </button>
+      </div>
+
+      <div style={{ padding: "0 20px 16px" }}>
+        <button
+          data-tour="training-defaults"
+          onClick={onViewTraining}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: "13px 14px", textAlign: "left" }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
+              Training Defaults
+            </span>
+            <span style={{ display: "block", color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.4 }}>
+              Rest lengths and alerts, sets per exercise, RIR or RPE, recovery pace, and how far back history goes.
             </span>
           </span>
           <ChevronRight size={16} color={COLORS.accent} style={{ flexShrink: 0 }} />
@@ -11770,8 +12834,8 @@ function FeatureListScreen({ onBack }) {
           <FeatureItem name="Backup">
             Settings → Backup saves everything — history, programmes, settings, exercise order — to one JSON file in your Downloads, and names the exact path it wrote to. Restore puts it all back. Your data never leaves the phone otherwise, so this file is the only copy that survives losing it.
           </FeatureItem>
-          <FeatureItem name="Reps In Reserve">
-            Advanced Mode puts a blue circle beside every set. One tap records how many reps you had left — 0 for failure through to 3+. The readiness map reads it directly: 0 or 1 puts the muscle on its failure window, 2 or more on its buffer window, and the gap is large — a hard set of squats needs 84 hours where one with reps left needs 54. The hardest set of the session decides. Leave it blank and the buffer window is assumed.
+          <FeatureItem name="Effort — RIR or RPE">
+            Advanced Mode puts a blue circle beside every set. One tap records how hard it was, on whichever scale you picked in Settings → Training Defaults: reps in reserve (0 for failure through to 3+) or RPE (10 for failure down to 7 or less). They are the same measurement counted from opposite ends, so the stored value is identical and switching scales relabels your whole history rather than rewriting it. The readiness map reads it directly: 0-1 RIR — RPE 9-10 — puts the muscle on its failure window, anything easier on its buffer window, and the gap is large: a hard set of squats needs 84 hours where one with reps left needs 54. The hardest set of the session decides. Leave it blank and the buffer window is assumed.
           </FeatureItem>
           <FeatureItem name="Exercise Notes">
             Jot anything against an exercise — seat height, a niggle, which pin. It reappears under "last time" when you next do it.
@@ -11896,11 +12960,14 @@ One entry per movement. A bench press is a bench press whether it is loaded with
           <FeatureItem name="Last Top Set">
             Shows your last logged top set for an exercise, right there while you log the new one.
           </FeatureItem>
+          <FeatureItem name="Cardio & Activity">
+            A panel at the foot of Home for runs, walks, rides and anything else, kept out of your lifting stats but wired into the readiness map above it. Log a time in minutes and seconds, a distance if you want one, and an effort from RPE 1 to 10; pace is worked out for you — minutes per kilometre for a run or walk, km/h for a ride. A run tires quads, calves and hamstrings directly and glutes, shins and core indirectly; a ride is quad-led with the rest indirect; a walk is indirect throughout, because treating a stroll as direct leg work would paint the map red for anyone who commutes on foot. RPE 9 or 10 counts as hard, the same threshold a set at 0-1 RIR meets. "Other" is timed and logged but leaves the map alone, since the app has no way to know what it worked.
+          </FeatureItem>
           <FeatureItem name="Muscle Readiness Map">
             Toggles the body-diagram recovery map on the Home screen.
           </FeatureItem>
-          <FeatureItem name="Rest Timer Sound">
-            Plays a beep when a rest timer finishes.
+          <FeatureItem name="Training Defaults">
+            Its own screen off Settings, holding the numbers the app used to pick for you: how long compound and isolation rests run (30 seconds to 10 minutes), whether the timer starts itself, beeps and buzzes when it ends, how many set rows an exercise opens with, how fast a muscle is treated as recovering, and how many past sessions of a lift the charts can see.
           </FeatureItem>
           <FeatureItem name="Randomize Exercise Selection">
             When off, auto-built workouts pick exercises in a fixed ranked order; when on, they shuffle for variety.
@@ -12230,9 +13297,8 @@ function SuggestedScreen({ onBack, onBuild }) {
     let cancelled = false;
     async function load() {
       const muscles = MUSCLE_GROUPS;
-      const hist = (await safeGet("workout-history")) || [];
+      const lastMap = await loadRecoveryMap();
       if (cancelled) return;
-      const lastMap = computeMuscleLastMap(hist);
       const map = {};
       muscles.forEach((m) => (map[m] = readinessPercent(lastMap[m], m)));
       setReadiness(map);
@@ -12392,14 +13458,14 @@ const TOUR_STEPS = [
   {
     icon: <Sparkles size={26} />,
     title: "How Hard Was That Set?",
-    body: "In Advanced Mode each set gets a blue circle on the right. Tap it and pick how many reps you had left in the tank — 0 means you went to failure, 3+ means you stopped well short. It takes one tap and it changes the readiness map: a muscle taken to failure is given longer to recover than one worked comfortably.",
+    body: "In Advanced Mode each set gets a blue circle on the right. Tap it and say how hard the set was — reps left in the tank, or RPE out of 10 if that is how you think; pick which in Settings \u2192 Training Defaults. It takes one tap and it changes the readiness map: a muscle taken to failure is given longer to recover than one worked comfortably.",
     screen: "workoutPreview",
     target: "set-rows",
   },
   {
     icon: <Timer size={26} />,
     title: "Rest Timer",
-    body: "Tick a set off and the rest countdown starts on its own. It pins to the top of the screen and stays there while you scroll, so it's always visible — pause, add time, or skip it. Turn the automatic start off in Settings if you'd rather begin it yourself.",
+    body: "Tick a set off and the rest countdown starts on its own. It pins to the top of the screen and stays there while you scroll, so it's always visible — pause, add time, or skip it. Settings → Training Defaults sets how long a rest runs for compounds and for isolation work, and turns the automatic start, the beep and the buzz on or off.",
     screen: "workoutPreview",
     target: "rest-timer",
   },
@@ -13038,6 +14104,12 @@ export default function App() {
 
   useEffect(() => {
     async function init() {
+      const savedSettings = await safeGet("settings");
+      // Read before the migrations rather than after them: two of those
+      // merge one exercise's history into another and trim the result to
+      // the cap, so they have to know a raised cap before they run or they
+      // would throw away sessions the lifter asked to keep.
+      applyTrainingPrefs({ ...DEFAULT_SETTINGS, ...(savedSettings || {}) });
       await runMigrations();
       await loadCustomExercises();
       // After the customs, so an edit to one lands on the entry it belongs
@@ -13050,7 +14122,6 @@ export default function App() {
       // Must run after custom exercises are registered, so a saved order
       // that includes them positions them correctly rather than appending.
       await loadExerciseOrder();
-      const savedSettings = await safeGet("settings");
       if (savedSettings) {
         const merged = { ...DEFAULT_SETTINGS, ...savedSettings, weightUnit: "kg" };
         // Before setSettings, so the first paint is already in the right
@@ -13162,6 +14233,7 @@ export default function App() {
     // paints, so it has to be rewritten before React re-renders rather than
     // passed down as state.
     applyTheme(next.theme, next.colourScheme, next.highContrast);
+    applyTrainingPrefs(next);
     setSettings(next);
     await safeSet("settings", next);
   }
@@ -13427,6 +14499,7 @@ export default function App() {
           onChange={updateSettings}
           onBack={() => setScreen("home")}
           onViewColour={() => setScreen("colour")}
+          onViewTraining={() => setScreen("training")}
           onReplayTour={replayTour}
           onViewFeatureList={() => setScreen("featureList")}
           onViewWhatsNew={() => setWhatsNew(releaseNotesFor(APP_VERSION))}
@@ -13440,6 +14513,14 @@ export default function App() {
 
       {screen === "colour" && (
         <ColourScreen
+          settings={settings}
+          onChange={updateSettings}
+          onBack={() => setScreen("settings")}
+        />
+      )}
+
+      {screen === "training" && (
+        <TrainingScreen
           settings={settings}
           onChange={updateSettings}
           onBack={() => setScreen("settings")}
