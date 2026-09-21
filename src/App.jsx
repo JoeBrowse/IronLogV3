@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, Minus, Check, Dumbbell, Clock, Trophy, History as HistoryIcon, Timer, Pause, Play, SkipForward, Lock, RotateCcw, Bookmark, TrendingUp, Trash2, Pencil, X, ChevronUp, ChevronDown, Settings as SettingsIcon, Sparkles, User, BookOpen, PieChart, Footprints, Bike, Activity } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Minus, Check, Dumbbell, Clock, Trophy, History as HistoryIcon, Timer, Pause, Play, SkipForward, Lock, RotateCcw, Bookmark, TrendingUp, Trash2, Pencil, X, ChevronUp, ChevronDown, Settings as SettingsIcon, Sparkles, User, BookOpen, PieChart, Footprints, Bike, Activity, Info } from "lucide-react";
 import { FRONT_MUSCLES, BACK_MUSCLES } from "body-muscles";
 
 /* Preferences that pure helpers need but cannot be handed.
@@ -804,7 +804,475 @@ function hasWindowStorage() {
 const APP_VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0";
 const LAST_SEEN_VERSION_KEY = "last-seen-version";
 
+/* ---------------------------------------------------------------
+   THE DAILY QUOTE
+
+   The home screen used to open with "Ready to train?", which said the
+   same thing every morning and so after a week said nothing at all.
+   It now opens with one of 365 quotes, picked by the day of the year:
+   the same quote for everyone on the same date, a different one
+   tomorrow, and no repeat until the year comes round again.
+
+   Not a wall of motivation. Philosophers, comedians, physicists,
+   novelists, boxers and pop stars, chosen for being worth reading
+   rather than for shouting at you.
+
+   The dates are the year of the speech, letter, book or recording
+   where that is known. "c." means the year is the best-supported
+   estimate rather than a record, which is most of the ancient world
+   and most things said out loud. Where a line is famous but its
+   ownership is not settled, it says "attributed to" rather than
+   pretending.
+--------------------------------------------------------------- */
+const QUOTES = [
+  ["Never in the field of human conflict was so much owed by so many to so few.", "Winston Churchill", "1940"],
+  ["Dare to know. Have the courage to use your own understanding.", "Immanuel Kant", "1784"],
+  ["Be the change that you wish to see in the world.", "attributed to Mahatma Gandhi", "c. 1913"],
+  ["Stay hungry, stay foolish.", "Steve Jobs, quoting the Whole Earth Catalog", "2005"],
+  ["I always wanted to be somebody, but now I realise I should have been more specific.", "Lily Tomlin", "1986"],
+  ["Hell is other people.", "Jean-Paul Sartre", "1944"],
+  ["Never doubt that a small group of thoughtful, committed citizens can change the world.", "Margaret Mead", "c. 1960"],
+  ["However difficult life may seem, there is always something you can succeed at.", "Stephen Hawking", "2010"],
+  ["It was the best of times, it was the worst of times.", "Charles Dickens", "1859"],
+  ["I wouldn't say I was the best manager in the business, but I was in the top one.", "Brian Clough", "2002"],
+  ["Talent develops in quiet places, character in the full current of human life.", "Johann Wolfgang von Goethe", "1795"],
+  ["They make a desert and call it peace.", "Tacitus", "98"],
+  ["Either write something worth reading or do something worth writing.", "Benjamin Franklin", "1738"],
+  ["Dripping water hollows out stone, not through force but through persistence.", "Ovid", "c. 10"],
+  ["All animals are equal, but some animals are more equal than others.", "George Orwell", "1945"],
+  ["It ain't over till it's over.", "Yogi Berra", "1973"],
+  ["I'd kill for a Nobel Peace Prize.", "Steven Wright", "c. 1987"],
+  ["Genius is one per cent inspiration and ninety-nine per cent perspiration.", "Thomas Edison", "1932"],
+  ["The time you enjoy wasting is not wasted time.", "Bertrand Russell", "1930"],
+  ["Perfection is achieved, not when there is nothing more to add, but when there is nothing left to take away.", "Antoine de Saint-Exupéry", "1939"],
+  ["In mathematics you don't understand things. You just get used to them.", "John von Neumann", "1947"],
+  ["When I'm good, I'm very good. But when I'm bad, I'm better.", "Mae West", "1933"],
+  ["Great people do things before they're ready.", "Amy Poehler", "2014"],
+  ["I am not a member of any organised political party. I am a Democrat.", "Will Rogers", "1930"],
+  ["Judge a man by his questions rather than his answers.", "Voltaire", "1770"],
+  ["People don't know what they want until you show it to them.", "Steve Jobs", "1998"],
+  ["Education is our passport to the future, for tomorrow belongs to the people who prepare for it today.", "Malcolm X", "1964"],
+  ["Every man takes the limits of his own field of vision for the limits of the world.", "Arthur Schopenhauer", "1851"],
+  ["Float like a butterfly, sting like a bee.", "Muhammad Ali", "1964"],
+  ["Seize the day, trusting as little as possible in tomorrow.", "Horace", "23 BC"],
+  ["The way to love anything is to realise that it may be lost.", "G. K. Chesterton", "1909"],
+  ["I have a dream that my four little children will one day live in a nation where they will not be judged by the colour of their skin but by the content of their character.", "Martin Luther King Jr.", "1963"],
+  ["I learned that courage was not the absence of fear, but the triumph over it.", "Nelson Mandela", "1994"],
+  ["I have made this letter longer than usual because I have not had time to make it shorter.", "Blaise Pascal", "1657"],
+  ["We know more about the movement of celestial bodies than about the soil underfoot.", "Leonardo da Vinci", "c. 1500"],
+  ["Peace is not the absence of war; it is a virtue, a state of mind, a disposition for benevolence.", "Baruch Spinoza", "1670"],
+  ["There is a crack in everything. That's how the light gets in.", "Leonard Cohen", "1992"],
+  ["Ask not what your country can do for you — ask what you can do for your country.", "John F. Kennedy", "1961"],
+  ["The best way to predict the future is to invent it.", "Alan Kay", "1971"],
+  ["Strength does not come from physical capacity. It comes from an indomitable will.", "Mahatma Gandhi", "1927"],
+  ["All we have to decide is what to do with the time that is given us.", "J. R. R. Tolkien", "1954"],
+  ["An expert is a person who has made all the mistakes that can be made in a very narrow field.", "Niels Bohr", "c. 1950"],
+  ["Outside of a dog, a book is man's best friend. Inside of a dog it's too dark to read.", "Groucho Marx", "c. 1965"],
+  ["A journey of a thousand miles begins with a single step.", "Lao Tzu", "c. 400 BC"],
+  ["I dream my painting and then I paint my dream.", "Vincent van Gogh", "1888"],
+  ["I am no bird; and no net ensnares me: I am a free human being with an independent will.", "Charlotte Brontë", "1847"],
+  ["I am not a has-been. I am a will be.", "Lauren Bacall", "1979"],
+  ["Far better it is to dare mighty things than to take rank with those poor spirits who neither enjoy much nor suffer much.", "Theodore Roosevelt", "1899"],
+  ["Don't be a writer; be writing.", "William Faulkner", "1956"],
+  ["I don't mind living in a man's world as long as I can be a woman in it.", "Marilyn Monroe", "1954"],
+  ["Not everything that is faced can be changed, but nothing can be changed until it is faced.", "James Baldwin", "1962"],
+  ["You may not control all the events that happen to you, but you can decide not to be reduced by them.", "Maya Angelou", "1993"],
+  ["I can't go on. I'll go on.", "Samuel Beckett", "1953"],
+  ["No man ever steps in the same river twice, for it is not the same river and he is not the same man.", "Heraclitus", "c. 500 BC"],
+  ["I have never let my schooling interfere with my education.", "Mark Twain", "c. 1907"],
+  ["I have learned over the years that when one's mind is made up, this diminishes fear.", "Rosa Parks", "1992"],
+  ["A man who dares to waste one hour of time has not discovered the value of life.", "Charles Darwin", "1836"],
+  ["An artist's duty is to reflect the times.", "Nina Simone", "1969"],
+  ["Nothing in life is to be feared, it is only to be understood.", "Marie Curie", "1937"],
+  ["Pressure is a privilege.", "Billie Jean King", "2008"],
+  ["I don't count my sit-ups. I only start counting when it starts hurting.", "Muhammad Ali", "1975"],
+  ["The unexamined life is not worth living.", "Socrates", "399 BC"],
+  ["Done is better than perfect.", "Sheryl Sandberg", "2013"],
+  ["The happiness of your life depends upon the quality of your thoughts.", "Marcus Aurelius", "c. 180"],
+  ["We think too much and feel too little.", "Charlie Chaplin", "1940"],
+  ["If liberty means anything at all, it means the right to tell people what they do not want to hear.", "George Orwell", "1945"],
+  ["Great dancers are not great because of their technique; they are great because of their passion.", "Martha Graham", "1952"],
+  ["No one is useless in this world who lightens the burdens of another.", "Charles Dickens", "1865"],
+  ["Fortune favours the bold.", "Virgil", "19 BC"],
+  ["We suffer more often in imagination than in reality.", "Seneca", "c. 65"],
+  ["The first principle is that you must not fool yourself — and you are the easiest person to fool.", "Richard Feynman", "1974"],
+  ["Listen to the mustn'ts, child. Listen to the don'ts. Then listen close to me: anything can happen, child. Anything can be.", "Shel Silverstein", "1974"],
+  ["Premature optimisation is the root of all evil.", "Donald Knuth", "1974"],
+  ["Sometimes you have to play a long time to be able to play like yourself.", "Miles Davis", "1989"],
+  ["Life is hard. After all, it kills you.", "Katharine Hepburn", "1991"],
+  ["Art has to be something that makes you scratch your head.", "Ai Weiwei", "2011"],
+  ["Art is never finished, only abandoned.", "Leonardo da Vinci", "c. 1500"],
+  ["Extraordinary claims require extraordinary evidence.", "Carl Sagan", "1980"],
+  ["One child, one teacher, one book, one pen can change the world.", "Malala Yousafzai", "2013"],
+  ["I always wanted to be a musician; I never wanted to be a celebrity.", "Quincy Jones", "2018"],
+  ["I am large, I contain multitudes.", "Walt Whitman", "1855"],
+  ["Man is the measure of all things.", "Protagoras", "c. 440 BC"],
+  ["But who will guard the guards themselves?", "Juvenal", "c. 100"],
+  ["Attention must be paid.", "Arthur Miller", "1949"],
+  ["An understanding of the natural world is a source of not only great curiosity, but great fulfilment.", "David Attenborough", "2020"],
+  ["Nothing is miserable unless you think it so.", "Boethius", "524"],
+  ["They always say time changes things, but you actually have to change them yourself.", "Andy Warhol", "1975"],
+  ["Love takes off the masks that we fear we cannot live without and know we cannot live within.", "James Baldwin", "1963"],
+  ["Prediction is very difficult, especially about the future.", "Niels Bohr", "c. 1950"],
+  ["The only people for me are the mad ones, the ones who are mad to live.", "Jack Kerouac", "1957"],
+  ["It is not necessary to change. Survival is not mandatory.", "W. Edwards Deming", "1982"],
+  ["The trouble with having an open mind is that people will insist on coming along and trying to put things in it.", "Terry Pratchett", "1994"],
+  ["Lock up your libraries if you like; but there is no gate, no lock, no bolt that you can set upon the freedom of my mind.", "Virginia Woolf", "1929"],
+  ["Yesterday is history, tomorrow is a mystery, today is a gift — which is why we call it the present.", "Bil Keane", "1994"],
+  ["Women belong in all places where decisions are being made.", "Ruth Bader Ginsburg", "2009"],
+  ["So we beat on, boats against the current, borne back ceaselessly into the past.", "F. Scott Fitzgerald", "1925"],
+  ["Analysing humour is like dissecting a frog. Few people are interested and the frog dies of it.", "E. B. White", "1941"],
+  ["You miss one hundred per cent of the shots you don't take.", "Wayne Gretzky", "1983"],
+  ["We shall fight on the beaches, we shall fight on the landing grounds, we shall never surrender.", "Winston Churchill", "1940"],
+  ["The struggle itself toward the heights is enough to fill a man's heart. One must imagine Sisyphus happy.", "Albert Camus", "1942"],
+  ["Creativity takes courage.", "Henri Matisse", "1953"],
+  ["Simplicity is prerequisite for reliability.", "Edsger W. Dijkstra", "1975"],
+  ["Nothing is more revealing than movement.", "Martha Graham", "1937"],
+  ["Men are disturbed not by things, but by the views which they take of things.", "Epictetus", "c. 125"],
+  ["So many books, so little time.", "Frank Zappa", "c. 1980"],
+  ["If you don't like the road you're walking, start paving another one.", "Dolly Parton", "2012"],
+  ["What we observe is not nature itself, but nature exposed to our method of questioning.", "Werner Heisenberg", "1958"],
+  ["The mind is not a vessel to be filled, but a fire to be kindled.", "Plutarch", "c. 100"],
+  ["Everything is funny, as long as it's happening to somebody else.", "Will Rogers", "1930"],
+  ["When you know a thing, to hold that you know it; and when you do not know a thing, to allow that you do not know it — this is knowledge.", "Confucius", "c. 500 BC"],
+  ["The only thing worse than being talked about is not being talked about.", "Oscar Wilde", "1890"],
+  ["What I cannot create, I do not understand.", "Richard Feynman", "1988"],
+  ["Words are, of course, the most powerful drug used by mankind.", "Rudyard Kipling", "1923"],
+  ["Dying is easy, comedy is hard.", "attributed to Edmund Kean", "1833"],
+  ["Have no fear of perfection — you'll never reach it.", "Salvador Dalí", "1948"],
+  ["Things fall apart; the centre cannot hold.", "W. B. Yeats", "1919"],
+  ["Anxiety is the dizziness of freedom.", "Søren Kierkegaard", "1844"],
+  ["The main thing I've learned about conspiracy theory is that conspiracy theorists believe in a conspiracy because that is more comforting.", "Alan Moore", "c. 2003"],
+  ["Whoever fights monsters should see to it that in the process he does not become a monster.", "Friedrich Nietzsche", "1886"],
+  ["Tell all the truth but tell it slant.", "Emily Dickinson", "1868"],
+  ["Life is what happens to you while you're busy making other plans.", "John Lennon", "1980"],
+  ["Be water, my friend.", "Bruce Lee", "1971"],
+  ["Say yes, and you'll figure it out afterwards.", "Tina Fey", "2011"],
+  ["In the depth of winter, I finally learned that within me there lay an invincible summer.", "Albert Camus", "1952"],
+  ["Cooking is not difficult. Everyone has taste, even if they don't realise it.", "Julia Child", "1961"],
+  ["A house divided against itself cannot stand.", "Abraham Lincoln", "1858"],
+  ["Nothing will work unless you do.", "Maya Angelou", "1993"],
+  ["The reasonable man adapts himself to the world; the unreasonable one persists in trying to adapt the world to himself.", "George Bernard Shaw", "1903"],
+  ["Feet, what do I need them for if I have wings to fly?", "Frida Kahlo", "1953"],
+  ["The limits of my language mean the limits of my world.", "Ludwig Wittgenstein", "1922"],
+  ["It is not the strongest of the species that survives, but the one most responsive to change.", "Leon C. Megginson, paraphrasing Darwin", "1963"],
+  ["Honour thy error as a hidden intention.", "Brian Eno", "1975"],
+  ["Reason is, and ought only to be, the slave of the passions.", "David Hume", "1739"],
+  ["Do not go gentle into that good night. Rage, rage against the dying of the light.", "Dylan Thomas", "1951"],
+  ["Ever tried. Ever failed. No matter. Try again. Fail again. Fail better.", "Samuel Beckett", "1983"],
+  ["Darkness cannot drive out darkness; only light can do that.", "Martin Luther King Jr.", "1963"],
+  ["You only live once, but if you do it right, once is enough.", "Mae West", "c. 1950"],
+  ["In God we trust; all others must bring data.", "W. Edwards Deming", "1982"],
+  ["Common sense is not so common.", "Voltaire", "1764"],
+  ["I sing my sorrow and I paint my joy.", "Joni Mitchell", "1991"],
+  ["No man's knowledge here can go beyond his experience.", "John Locke", "1689"],
+  ["Find out who you are and do it on purpose.", "Dolly Parton", "2012"],
+  ["We are all in the gutter, but some of us are looking at the stars.", "Oscar Wilde", "1892"],
+  ["Everything is about the mind. If you are afraid, the mind will tell the body to stop.", "Eliud Kipchoge", "2019"],
+  ["To create one's own world takes courage.", "Georgia O'Keeffe", "1976"],
+  ["It is our choices that show what we truly are, far more than our abilities.", "J. K. Rowling", "1998"],
+  ["Don't think about making art, just get it done.", "Andy Warhol", "1975"],
+  ["I'll tell you what freedom is to me: no fear.", "Nina Simone", "1968"],
+  ["Whenever you find yourself on the side of the majority, it is time to pause and reflect.", "Mark Twain", "1897"],
+  ["The only thing we have to fear is fear itself.", "Franklin D. Roosevelt", "1933"],
+  ["Big Brother is watching you.", "George Orwell", "1949"],
+  ["We can only see a short distance ahead, but we can see plenty there that needs to be done.", "Alan Turing", "1950"],
+  ["Declare the past, diagnose the present, foretell the future.", "Hippocrates", "c. 400 BC"],
+  ["Football is a simple game made complicated by people who should know better.", "Bill Shankly", "1980"],
+  ["I am become Death, the destroyer of worlds.", "J. Robert Oppenheimer, quoting the Bhagavad Gita", "1965"],
+  ["I would rather be a rebel than a slave.", "Emmeline Pankhurst", "1913"],
+  ["Fashion fades, only style remains the same.", "Coco Chanel", "c. 1960"],
+  ["If you want to be happy, be.", "Leo Tolstoy", "1900"],
+  ["It is not enough to be busy; so are the ants. The question is: what are we busy about?", "Henry David Thoreau", "1855"],
+  ["Every child is an artist. The problem is how to remain an artist once we grow up.", "Pablo Picasso", "1964"],
+  ["Man is by nature a political animal.", "Aristotle", "c. 350 BC"],
+  ["Whether you think you can or you think you can't, you're right.", "attributed to Henry Ford", "c. 1947"],
+  ["Always be yourself, express yourself, have faith in yourself.", "Bruce Lee", "1971"],
+  ["No one can make you feel inferior without your consent.", "attributed to Eleanor Roosevelt", "1940"],
+  ["The worst thing you can do is be boring.", "Vivienne Westwood", "2010"],
+  ["I've been on a diet for two weeks and all I've lost is two weeks.", "Totie Fields", "c. 1970"],
+  ["Comedy is tragedy plus time.", "attributed to Carol Burnett", "1962"],
+  ["That's one small step for man, one giant leap for mankind.", "Neil Armstrong", "1969"],
+  ["It costs a lot of money to look this cheap.", "Dolly Parton", "1977"],
+  ["I don't think about art when I'm working. I try to think about life.", "Jean-Michel Basquiat", "1985"],
+  ["Don't panic.", "Douglas Adams", "1979"],
+  ["Democracy is the worst form of government, except for all those other forms that have been tried from time to time.", "Winston Churchill", "1947"],
+  ["If I have seen further, it is by standing on the shoulders of giants.", "Isaac Newton", "1675"],
+  ["Don't tell me the moon is shining; show me the glint of light on broken glass.", "Anton Chekhov", "c. 1889"],
+  ["A computer would deserve to be called intelligent if it could deceive a human into believing that it was human.", "Alan Turing", "1950"],
+  ["We are made of star stuff.", "Carl Sagan", "1980"],
+  ["Two roads diverged in a wood, and I — I took the one less travelled by, and that has made all the difference.", "Robert Frost", "1916"],
+  ["People will forget what you said, people will forget what you did, but people will never forget how you made them feel.", "Maya Angelou", "1971"],
+  ["If people never did silly things nothing intelligent would ever get done.", "Ludwig Wittgenstein", "1977"],
+  ["The good thing about science is that it's true whether or not you believe in it.", "Neil deGrasse Tyson", "2013"],
+  ["The most dangerous phrase in the language is: we've always done it this way.", "Grace Hopper", "1976"],
+  ["Man is born free, and everywhere he is in chains.", "Jean-Jacques Rousseau", "1762"],
+  ["I have a lot of growing up to do. I realised that the other day inside my fort.", "Zach Galifianakis", "c. 2007"],
+  ["Change your life today. Don't gamble on the future, act now, without delay.", "Simone de Beauvoir", "1947"],
+  ["I fear not the man who has practised ten thousand kicks once, but I fear the man who has practised one kick ten thousand times.", "Bruce Lee", "c. 1970"],
+  ["Imagination is more important than knowledge.", "Albert Einstein", "1929"],
+  ["In order to be irreplaceable, one must always be different.", "Coco Chanel", "c. 1960"],
+  ["A problem is a chance for you to do your best.", "Duke Ellington", "c. 1960"],
+  ["It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.", "Jane Austen", "1813"],
+  ["Only if we understand can we care. Only if we care will we help.", "Jane Goodall", "1991"],
+  ["Whatever our souls are made of, his and mine are the same.", "Emily Brontë", "1847"],
+  ["To be great is to be misunderstood.", "Ralph Waldo Emerson", "1841"],
+  ["The ballot is stronger than the bullet.", "Abraham Lincoln", "1856"],
+  ["Comedy is simply a funny way of being serious.", "Peter Ustinov", "1977"],
+  ["He who knows only his own side of the case knows little of that.", "John Stuart Mill", "1859"],
+  ["Not all those who wander are lost.", "J. R. R. Tolkien", "1954"],
+  ["Above all, don't lie to yourself.", "Fyodor Dostoevsky", "1880"],
+  ["Any idiot can face a crisis; it's this day-to-day living that wears you out.", "Anton Chekhov", "c. 1897"],
+  ["There are no facts, only interpretations.", "Friedrich Nietzsche", "1887"],
+  ["Fight for the things that you care about, but do it in a way that will lead others to join you.", "Ruth Bader Ginsburg", "2015"],
+  ["I hated every minute of training, but I said: don't quit. Suffer now and live the rest of your life as a champion.", "Muhammad Ali", "1975"],
+  ["It's not the despair. I can stand the despair. It's the hope.", "Michael Frayn, in Clockwise", "1986"],
+  ["I used to do drugs. I still do, but I used to, too.", "Mitch Hedberg", "1999"],
+  ["Act the way you'd like to be and soon you'll be the way you act.", "Leonard Cohen", "c. 1980"],
+  ["Get in good trouble, necessary trouble, and help redeem the soul of America.", "John Lewis", "2020"],
+  ["Hard work beats talent when talent doesn't work hard.", "attributed to Tim Notke", "c. 2005"],
+  ["Bird by bird, buddy. Just take it bird by bird.", "Anne Lamott", "1994"],
+  ["That brain of mine is something more than merely mortal, as time will show.", "Ada Lovelace", "1843"],
+  ["You don't know what you've got till it's gone.", "Joni Mitchell", "1970"],
+  ["Reality is that which, when you stop believing in it, doesn't go away.", "Philip K. Dick", "1978"],
+  ["I told you I was ill.", "Spike Milligan", "2002"],
+  ["Great things are not done by impulse, but by a series of small things brought together.", "Vincent van Gogh", "1882"],
+  ["I write entirely to find out what I'm thinking.", "Joan Didion", "1976"],
+  ["It is well known that a vital ingredient of success is not knowing that what you're attempting can't be done.", "Terry Pratchett", "1990"],
+  ["Life must be understood backwards, but it must be lived forwards.", "Søren Kierkegaard", "1843"],
+  ["Nothing can be created out of nothing.", "Lucretius", "c. 55 BC"],
+  ["No human is limited.", "Eliud Kipchoge", "2019"],
+  ["I'm good, but I'm not an angel. I do sin, but I'm not the devil.", "Marilyn Monroe", "1962"],
+  ["Fairy tales are more than true: not because they tell us that dragons exist, but because they tell us that dragons can be beaten.", "Neil Gaiman, after G. K. Chesterton", "2002"],
+  ["Inspiration is for amateurs. The rest of us just show up and get to work.", "Chuck Close", "c. 2009"],
+  ["Success is a lousy teacher. It seduces smart people into thinking they can't lose.", "Bill Gates", "1995"],
+  ["Repetition is a form of change.", "Brian Eno", "1975"],
+  ["I intend to live forever. So far, so good.", "Steven Wright", "c. 1985"],
+  ["The purpose of computing is insight, not numbers.", "Richard Hamming", "1962"],
+  ["It is not the critic who counts. The credit belongs to the man who is actually in the arena.", "Theodore Roosevelt", "1910"],
+  ["A man sees in the world what he carries in his heart.", "Johann Wolfgang von Goethe", "1808"],
+  ["Government of the people, by the people, for the people, shall not perish from the Earth.", "Abraham Lincoln", "1863"],
+  ["Any sufficiently advanced technology is indistinguishable from magic.", "Arthur C. Clarke", "1973"],
+  ["The only real stumbling block is fear of failure. In cooking you've got to have a what-the-hell attitude.", "Julia Child", "1989"],
+  ["Give me a place to stand and I will move the Earth.", "Archimedes", "c. 250 BC"],
+  ["Your margin is my opportunity.", "Jeff Bezos", "2001"],
+  ["It don't mean a thing if it ain't got that swing.", "Duke Ellington", "1931"],
+  ["Playing football is very simple, but playing simple football is the hardest thing there is.", "Johan Cruyff", "1997"],
+  ["Deeds, not words.", "Emmeline Pankhurst", "1903"],
+  ["The strong do what they can and the weak suffer what they must.", "Thucydides", "c. 400 BC"],
+  ["Do not fear mistakes. There are none.", "Miles Davis", "c. 1970"],
+  ["The man who can drive himself further once the effort gets painful is the man who will win.", "Roger Bannister", "1955"],
+  ["A ship in port is safe, but that's not what ships are built for.", "Grace Hopper", "1976"],
+  ["You are your best thing.", "Toni Morrison", "1987"],
+  ["In three words I can sum up everything I've learned about life: it goes on.", "Robert Frost", "1954"],
+  ["The greatest thing in the world is to know how to belong to oneself.", "Michel de Montaigne", "1580"],
+  ["The road to success is always under construction.", "Lily Tomlin", "c. 1980"],
+  ["I went to the woods because I wished to live deliberately.", "Henry David Thoreau", "1854"],
+  ["Tomorrow belongs to those who can hear it coming.", "David Bowie", "1980"],
+  ["It is not the mountain we conquer, but ourselves.", "Edmund Hillary", "c. 1975"],
+  ["The resistance that you fight physically in the gym and the resistance that you fight in life can only build a strong character.", "Arnold Schwarzenegger", "1977"],
+  ["I can resist everything except temptation.", "Oscar Wilde", "1892"],
+  ["To give anything less than your best is to sacrifice the gift.", "Steve Prefontaine", "1974"],
+  ["The test of a first-rate intelligence is the ability to hold two opposed ideas in mind at the same time and still retain the ability to function.", "F. Scott Fitzgerald", "1936"],
+  ["The arc of the moral universe is long, but it bends toward justice.", "Martin Luther King Jr.", "1965"],
+  ["I think, therefore I am.", "René Descartes", "1637"],
+  ["If there is no struggle, there is no progress.", "Frederick Douglass", "1857"],
+  ["Do one thing every day that scares you.", "attributed to Eleanor Roosevelt", "1960"],
+  ["I would rather have questions that can't be answered than answers that can't be questioned.", "Richard Feynman", "c. 1965"],
+  ["Programs must be written for people to read, and only incidentally for machines to execute.", "Harold Abelson", "1985"],
+  ["Build a man a fire and he'll be warm for a day. Set a man on fire and he'll be warm for the rest of his life.", "Terry Pratchett", "1994"],
+  ["For most of history, Anonymous was a woman.", "Virginia Woolf", "1929"],
+  ["Inside every cynical person there is a disappointed idealist.", "George Carlin", "1997"],
+  ["Before you criticise someone, walk a mile in their shoes. That way you're a mile away and you have their shoes.", "Jack Handey", "1992"],
+  ["Time is a strange thing. It's a big deal when you're young and it means nothing when you're old.", "Keith Richards", "2010"],
+  ["The function of freedom is to free someone else.", "Toni Morrison", "1979"],
+  ["I've been absolutely terrified every moment of my life — and I've never let it keep me from doing a single thing I wanted to do.", "Georgia O'Keeffe", "1976"],
+  ["It's not supposed to be easy. Anyone who finds it easy is stupid.", "Charlie Munger", "2003"],
+  ["Rule number one: never lose money. Rule number two: never forget rule number one.", "Warren Buffett", "1985"],
+  ["Every disadvantage has its advantage.", "Johan Cruyff", "c. 1995"],
+  ["Great deeds are usually wrought at great risks.", "Herodotus", "c. 430 BC"],
+  ["All of humanity's problems stem from man's inability to sit quietly in a room alone.", "Blaise Pascal", "1670"],
+  ["One is not born, but rather becomes, a woman.", "Simone de Beauvoir", "1949"],
+  ["Courage is grace under pressure.", "Ernest Hemingway", "1929"],
+  ["I have always depended on the kindness of strangers.", "Tennessee Williams", "1947"],
+  ["A career is wonderful, but you can't curl up with it on a cold night.", "Marilyn Monroe", "1953"],
+  ["It's not whether you get knocked down; it's whether you get up.", "Vince Lombardi", "1967"],
+  ["Be less curious about people and more curious about ideas.", "Marie Curie", "c. 1920"],
+  ["Life shrinks or expands in proportion to one's courage.", "Anaïs Nin", "1946"],
+  ["Failure is impossible.", "Susan B. Anthony", "1906"],
+  ["It is easier to build strong children than to repair broken men.", "Frederick Douglass", "1855"],
+  ["We choose to go to the Moon in this decade and do the other things, not because they are easy, but because they are hard.", "John F. Kennedy", "1962"],
+  ["Man is condemned to be free.", "Jean-Paul Sartre", "1946"],
+  ["You don't have to burn books to destroy a culture. Just get people to stop reading them.", "Ray Bradbury", "1993"],
+  ["Quality is never an accident; it is always the result of intelligent effort.", "John Ruskin", "1860"],
+  ["The saddest aspect of life right now is that science gathers knowledge faster than society gathers wisdom.", "Isaac Asimov", "1988"],
+  ["There is no charm equal to tenderness of heart.", "Jane Austen", "1815"],
+  ["Baseball is ninety per cent mental. The other half is physical.", "Yogi Berra", "1998"],
+  ["It isn't the mountains ahead to climb that wear you out; it's the pebble in your shoe.", "Muhammad Ali", "1975"],
+  ["You can't be that kid standing at the top of the waterslide, overthinking it. You have to go down the chute.", "Tina Fey", "2011"],
+  ["I have nothing to offer but blood, toil, tears and sweat.", "Winston Churchill", "1940"],
+  ["Your body is not a temple, it's an amusement park. Enjoy the ride.", "Anthony Bourdain", "2000"],
+  ["I love deadlines. I love the whooshing noise they make as they go by.", "Douglas Adams", "2002"],
+  ["A woman must have money and a room of her own if she is to write fiction.", "Virginia Woolf", "1929"],
+  ["Education is the most powerful weapon which you can use to change the world.", "Nelson Mandela", "2003"],
+  ["I am not afraid of storms, for I am learning how to sail my ship.", "Louisa May Alcott", "1868"],
+  ["Death is nothing to us, since when we exist, death is not present, and when death is present, we do not exist.", "Epicurus", "c. 300 BC"],
+  ["What you seek is seeking you.", "Rumi", "c. 1270"],
+  ["I have not failed. I've just found ten thousand ways that won't work.", "Thomas Edison", "1910"],
+  ["If you feel safe in the area you're working in, you're not working in the right area.", "David Bowie", "1997"],
+  ["Anyone can hold the helm when the sea is calm.", "Publilius Syrus", "c. 50 BC"],
+  ["The opposite of a fact is falsehood, but the opposite of one profound truth may very well be another profound truth.", "Niels Bohr", "c. 1950"],
+  ["We tell ourselves stories in order to live.", "Joan Didion", "1979"],
+  ["I've had a perfectly wonderful evening, but this wasn't it.", "Groucho Marx", "c. 1930"],
+  ["Life is a tragedy when seen in close-up, but a comedy in long-shot.", "Charlie Chaplin", "1964"],
+  ["Any product that needs a manual to work is broken.", "Elon Musk", "2013"],
+  ["The beginning is the most important part of the work.", "Plato", "c. 375 BC"],
+  ["Blessed are the cracked, for they shall let in the light.", "Spike Milligan", "1963"],
+  ["I've missed more than nine thousand shots in my career. I've failed over and over again in my life. And that is why I succeed.", "Michael Jordan", "1997"],
+  ["The only way of discovering the limits of the possible is to venture a little way past them into the impossible.", "Arthur C. Clarke", "1973"],
+  ["In the midst of chaos, there is also opportunity.", "Sun Tzu", "c. 500 BC"],
+  ["Machines take me by surprise with great frequency.", "Alan Turing", "1950"],
+  ["He who learns must suffer.", "Aeschylus", "458 BC"],
+  ["Testing shows the presence, not the absence, of bugs.", "Edsger W. Dijkstra", "1969"],
+  ["If you want to run, run a mile. If you want to experience a different life, run a marathon.", "Emil Zátopek", "c. 1955"],
+  ["In nature nothing exists alone.", "Rachel Carson", "1962"],
+  ["Without deviation from the norm, progress is not possible.", "Frank Zappa", "1989"],
+  ["I have learned, as a rule of thumb, never to ask whether you can do something. Say, instead, that you are doing it.", "Douglas Adams", "2002"],
+  ["It is only with the heart that one can see rightly; what is essential is invisible to the eye.", "Antoine de Saint-Exupéry", "1943"],
+  ["Whereof one cannot speak, thereof one must be silent.", "Ludwig Wittgenstein", "1922"],
+  ["The world breaks everyone, and afterward, many are strong at the broken places.", "Ernest Hemingway", "1929"],
+  ["We have two ears and one mouth, so that we can listen twice as much as we speak.", "Zeno of Citium", "c. 300 BC"],
+  ["We write to taste life twice, in the moment and in retrospect.", "Anaïs Nin", "1946"],
+  ["He who has a why to live can bear almost any how.", "Friedrich Nietzsche", "1889"],
+  ["Every man has his own destiny: the only imperative is to follow it, no matter where it leads him.", "Henry Miller", "1957"],
+  ["If there's a book that you want to read, but it hasn't been written yet, then you must write it.", "Toni Morrison", "1981"],
+  ["I don't know where I'm going from here, but I promise it won't be boring.", "David Bowie", "1997"],
+  ["In dreams begin responsibilities.", "W. B. Yeats", "1914"],
+  ["Skills can be taught. Character you either have or you don't have.", "Anthony Bourdain", "2000"],
+  ["I never dreamed about success. I worked for it.", "Estée Lauder", "1985"],
+  ["Someone will remember us, I say, even in another time.", "Sappho", "c. 600 BC"],
+  ["If they don't give you a seat at the table, bring a folding chair.", "Shirley Chisholm", "1972"],
+  ["Someone's sitting in the shade today because someone planted a tree a long time ago.", "Warren Buffett", "1991"],
+  ["In these matters the only certainty is that nothing is certain.", "Pliny the Elder", "77"],
+  ["Your time is limited, so don't waste it living someone else's life.", "Steve Jobs", "2005"],
+  ["I have as much authority as the Pope, I just don't have as many people who believe it.", "George Carlin", "c. 1990"],
+  ["Take a simple idea and take it seriously.", "Charlie Munger", "2007"],
+  ["Now this is not the end. It is not even the beginning of the end. But it is, perhaps, the end of the beginning.", "Winston Churchill", "1942"],
+  ["The moving finger writes; and, having writ, moves on.", "Omar Khayyám", "c. 1120"],
+  ["Waste no more time arguing about what a good man should be. Be one.", "Marcus Aurelius", "c. 180"],
+  ["Stand a little out of my sun.", "Diogenes, to Alexander the Great", "c. 336 BC"],
+  ["When you come to a fork in the road, take it.", "Yogi Berra", "1998"],
+  ["Out of the crooked timber of humanity, no straight thing was ever made.", "Immanuel Kant", "1784"],
+  ["While there's life, there's hope.", "Cicero", "c. 45 BC"],
+  ["Violence is the last refuge of the incompetent.", "Isaac Asimov", "1951"],
+  ["It always seems impossible until it's done.", "Nelson Mandela", "c. 1994"],
+  ["Science is not only a disciple of reason but also one of romance and passion.", "Stephen Hawking", "1993"],
+  ["Buy less, choose well, make it last.", "Vivienne Westwood", "2013"],
+  ["Hollywood is a place where they'll pay you a thousand dollars for a kiss and fifty cents for your soul.", "Marilyn Monroe", "1960"],
+  ["A lot of people run a race to see who's fastest. I run to see who has the most guts.", "Steve Prefontaine", "1974"],
+  ["Everyone thinks of changing the world, but no one thinks of changing himself.", "Leo Tolstoy", "1900"],
+  ["The world is before you and you need not take it or leave it as it was when you came in.", "James Baldwin", "1979"],
+  ["The only way out of the labyrinth of suffering is to forgive.", "John Green", "2005"],
+  ["Inspiration exists, but it has to find you working.", "Pablo Picasso", "c. 1960"],
+  ["Sometimes the questions are complicated and the answers are simple.", "Dr. Seuss", "1971"],
+  ["I skate to where the puck is going to be, not where it has been.", "Wayne Gretzky", "1980"],
+  ["Champions keep playing until they get it right.", "Billie Jean King", "1982"],
+  ["The whole problem with the world is that fools and fanatics are always so certain of themselves, and wiser people so full of doubts.", "Bertrand Russell", "1933"],
+  ["I refuse to join any club that would have me as a member.", "Groucho Marx", "1959"],
+  ["There is no royal road to geometry.", "Euclid", "c. 300 BC"],
+  ["Some people think football is a matter of life and death. I can assure them it is much more serious than that.", "Bill Shankly", "1981"],
+  ["A writer is someone for whom writing is more difficult than it is for other people.", "Thomas Mann", "1930"],
+  ["You are never too small to make a difference.", "Greta Thunberg", "2018"],
+  ["I'm against picketing, but I don't know how to show it.", "Mitch Hedberg", "2003"],
+  ["Do your little bit of good where you are; it's those little bits of good put together that overwhelm the world.", "Desmond Tutu", "2004"],
+  ["It is a riddle, wrapped in a mystery, inside an enigma.", "Winston Churchill", "1939"],
+  ["Sell your cleverness and buy bewilderment.", "Rumi", "c. 1270"],
+  ["A recipe has no soul. You as the cook must bring soul to the recipe.", "Thomas Keller", "1999"],
+  ["I don't know what's better: getting older or getting wiser. Both are happening at the same time.", "Amy Poehler", "2014"],
+  ["Hope is the thing with feathers that perches in the soul.", "Emily Dickinson", "1861"],
+];
+
+// Local day of the year, 0 for 1 January. Built from local midnights rather
+// than raw timestamps so a clock change cannot shift the boundary, and so the
+// quote turns over at midnight where you are instead of in UTC.
+function dayOfYear(d) {
+  const start = new Date(d.getFullYear(), 0, 1);
+  const today = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((today - start) / 86400000);
+}
+
+// 366 days into 365 quotes: 31 December of a leap year borrows 1 January's.
+// One repeat every four years is cheaper than a 366th quote that is only ever
+// seen in a leap year.
+function quoteOfTheDay(date) {
+  const d = date || new Date();
+  return QUOTES[dayOfYear(d) % QUOTES.length];
+}
+
+
 const RELEASE_NOTES = [
+  {
+    version: "1.25.0",
+    date: "September 2026",
+    headline: "Training load, done the way the research does it.",
+    items: [
+      {
+        title: "Stats for Nerds",
+        body: "A button at the foot of Consistency, and twelve panels behind it. Total tonnage with something to picture it against; a body diagram shaded by which muscles actually get your work; how often you go to failure, out of the sets where you recorded the effort rather than out of all of them; your reps by range; push against pull against legs; most-done exercises; which lifts have moved most and which have gone backwards; what hour you train and which day; weight moved per week; a record book of streaks, gaps and your biggest session; and your cardio totals by sport. Panels with nothing to say do not appear.",
+      },
+      {
+        title: "The fatigue bar is now the acute:chronic workload ratio",
+        body: "The old one was our own invention and it read your week wrong. This is the measure the injury literature actually uses: every session scored by Foster's session-RPE \u2014 how hard it felt times how long it lasted \u2014 with the last 7 days weighed against the last 28, both exponentially weighted. Gabbett's zones do the judging: under 0.8 detraining, 0.8 to 1.3 the sweet spot, over 1.5 two to four times the injury rate. Because it divides by your own 28-day average, it knows the difference between a heavy week for you and a heavy week for anybody.",
+      },
+      {
+        title: "An info button on the training load",
+        body: "Top right of the scale. What the ratio is, your own acute and chronic numbers with the windows they cover, where a session's load comes from, all four zones and their boundaries, what dragging does, and links to the three papers the whole thing is built on \u2014 Foster for session RPE, Gabbett for the zones, Williams for the weighting. Shut by default, so the bar itself still says nothing in words.",
+      },
+      {
+        title: "Drag the marker to ask it a question",
+        body: "Pull the line along the scale and it tells you what it would take to get there. Drag it down and you get the hours of rest, with the time and date you would arrive \u2014 rest is the only thing that lowers the ratio, and it falls by a fixed factor each day, so the answer is exact rather than a guess. Drag it up and resting will not do it, so it prices the session instead: the minutes at RPE 8 that would put you there today. Let go and it snaps back. Nothing is set or changed by it.",
+      },
+      {
+        title: "A scale with a marker, not a bar that fills",
+        body: "A filling bar says more is worse, and that is not what the ratio means \u2014 too little is its own risk and the target is a band in the middle. The colour now belongs to the scale, red through green and back to red, with a line showing where you are. The paragraph underneath is gone.",
+      },
+      {
+        title: "A different quote every morning",
+        body: "The home screen used to ask \"Ready to train?\" every single day, which after a week is wallpaper. It now opens with one of 365 quotes, chosen by the date \u2014 the same one for everybody on the same day, a new one tomorrow, and no repeat until the year comes round. Philosophers, physicists, comedians, novelists, boxers and pop stars: Marcus Aurelius, Marilyn Monroe, Alan Turing, Churchill, Nina Simone, Groucho Marx, Dolly Parton, Terry Pratchett. Not all of it is motivation, and none of it is anonymous \u2014 every line carries who said it and when, with \"c.\" where the year is a best estimate and \"attributed to\" where the world is not sure it was really them.",
+      },
+      {
+        title: "Two numbers taken out",
+        body: "The adherence percentage is gone from a programme's progress screen. Sessions against the plan, sets logged, total volume and your biggest lifts are all still there \u2014 what you did, rather than a mark out of ten for doing it. The bodyweight graph has lost its fitted trend line too: it now draws your weigh-ins, joins them up and marks your goal, and leaves the reading of it to you. Progress charts for individual lifts keep theirs.",
+      },
+      {
+        title: "Edit an activity after the fact",
+        body: "Tap the pencil on any logged run, ride or swim to change any of it \u2014 what it was, the date and time, the distance, the effort. Moving one to a different day re-files it in order and everything that reads it, the map, the streak and the load scale, follows.",
+      },
+    ],
+  },
+  {
+    version: "1.24.0",
+    date: "September 2026",
+    headline: "Know when to take the day off, and log the cardio you actually do.",
+    items: [
+      {
+        title: "Training load, under the readiness map",
+        body: "The measure sports science already uses, rather than one of ours. Every session gets a load \u2014 how hard it felt times how long it lasted, Foster's session-RPE \u2014 and the last 7 days of it are weighed against the last 28. That ratio is what injury research is built on: below 0.8 you are detraining, 0.8 to 1.3 is the sweet spot with the lowest injury rates, and above 1.5 the rate runs two to four times higher. The bar is coloured by those zones with a marker showing where you are, so it reads at a glance without a paragraph under it. It compares you to your own conditioning, so the same week is a normal week for one person and a spike for another.",
+      },
+      {
+        title: "Fifteen cardio options, indoor and out",
+        body: "Run, walk, hike, cycle and swim outdoors; treadmill, incline walk, stationary bike, spin, rower, elliptical, stair climber, assault bike and jump rope indoors. Each knows what it works \u2014 a rower is quads and back, a swim is back and delts, an assault bike is close to everything \u2014 and each is read in its own unit: min/km on foot, km/h on a bike, a /500m split on the erg, /100m in the pool.",
+      },
+      {
+        title: "Log a run whenever you get round to it",
+        body: "The activity form now takes a date and a time instead of assuming you are logging it the second you stop. A run stamped six hours late tells the readiness map the wrong thing.",
+      },
+      {
+        title: "Cardio keeps your streak alive",
+        body: "A day with a run or a hike on it now counts on the day streak and fills a square on the consistency calendar, the same as a day in the gym.",
+      },
+    ],
+  },
   {
     version: "1.23.0",
     date: "September 2026",
@@ -2935,6 +3403,25 @@ function todayStr() {
   return dateStrOf(new Date());
 }
 
+// "HH:MM" now, in local time, for a form that defaults to the moment.
+function nowTimeStr() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/* A date box and a time box back into the timestamp the readiness map
+   reads. Built through the local Date constructor rather than by pasting
+   the two strings together with a "T": that would be parsed as UTC and
+   shift a morning run by the whole timezone offset, which is exactly the
+   sort of error that makes recovery hours quietly wrong. */
+function atFromDateTime(dateStr, timeStr) {
+  const [y, m, d] = String(dateStr || "").split("-").map(Number);
+  const [hh, mm] = String(timeStr || "").split(":").map(Number);
+  if (!y || !m || !d) return new Date().toISOString();
+  const dt = new Date(y, m - 1, d, Number.isFinite(hh) ? hh : 12, Number.isFinite(mm) ? mm : 0, 0, 0);
+  return dt.toISOString();
+}
+
 // Single place that records a bodyweight reading: updates the app-wide current
 // weight and upserts today's entry into the dated history (one per day), sorted
 // oldest-first. Returns the new history array so callers holding it in state can
@@ -3174,47 +3661,180 @@ function trainedAgoLabel(at) {
    fatigue.
 --------------------------------------------------------------- */
 
+/* The catalogue. Grouped indoor and outdoor because that is how the
+   choice is actually made — you know which door you went through.
+
+   Each entry carries what it works and what unit it is read in, since
+   both are properties of the sport rather than of the app. A rower reads
+   a /500m split, a swimmer reads /100m, a cyclist reads km/h and a
+   runner reads min/km; showing any of them the wrong one is the sort of
+   detail that makes software feel written by someone who has never done
+   it. Where an activity has no meaningful distance — a stair climber, a
+   skipping rope — no pace is offered rather than a fabricated one. */
 const ACTIVITY_TYPES = [
+  // ---- Outdoor ----
   {
     id: "run",
     label: "Run",
+    group: "Outdoor",
     // Impact and repeated eccentric braking: the calves and quads take
     // the most of it, the posterior chain and shins a real share.
     primary: ["Quads", "Calves", "Hamstrings"],
     secondary: ["Glutes", "Shins", "Core"],
     pace: "min/km",
+    distanceUnit: "km",
   },
   {
     id: "walk",
     label: "Walk",
+    group: "Outdoor",
     // Nothing here is primary. Walking is what legs are for; treating a
     // half-hour stroll as direct leg work would paint the map red for
     // people who simply commute on foot.
     primary: [],
     secondary: ["Calves", "Quads", "Glutes"],
     pace: "min/km",
+    distanceUnit: "km",
+  },
+  {
+    id: "hike",
+    label: "Hike",
+    group: "Outdoor",
+    // Gradient and a pack turn a walk into leg work, and uneven ground
+    // asks something of the trunk that flat pavement does not.
+    primary: ["Quads", "Calves"],
+    secondary: ["Glutes", "Hamstrings", "Core", "Lower Back"],
+    pace: "min/km",
+    distanceUnit: "km",
   },
   {
     id: "cycle",
     label: "Cycle",
+    group: "Outdoor",
     // Concentric-dominant and quad-led, with far less eccentric damage
     // than running, so the hamstrings and calves stay indirect.
     primary: ["Quads"],
     secondary: ["Glutes", "Hamstrings", "Calves"],
     pace: "km/h",
+    distanceUnit: "km",
+  },
+  {
+    id: "swim",
+    label: "Swim",
+    group: "Outdoor",
+    // The one piece of cardio here that is mostly upper body.
+    primary: ["Back", "Front Delts"],
+    secondary: ["Chest", "Triceps", "Rear Delts", "Core"],
+    pace: "min/100m",
+    distanceUnit: "m",
+  },
+  // ---- Indoor ----
+  {
+    id: "treadmill",
+    label: "Treadmill Run",
+    group: "Indoor",
+    primary: ["Quads", "Calves", "Hamstrings"],
+    secondary: ["Glutes", "Shins", "Core"],
+    pace: "min/km",
+    distanceUnit: "km",
+  },
+  {
+    id: "incline-walk",
+    label: "Incline Walk",
+    group: "Indoor",
+    // The gradient is what makes this different from a walk: the calves
+    // do real work and the quads follow.
+    primary: ["Calves"],
+    secondary: ["Quads", "Glutes", "Hamstrings"],
+    pace: "min/km",
+    distanceUnit: "km",
+  },
+  {
+    id: "stationary-bike",
+    label: "Stationary Bike",
+    group: "Indoor",
+    primary: ["Quads"],
+    secondary: ["Glutes", "Hamstrings", "Calves"],
+    pace: "km/h",
+    distanceUnit: "km",
+  },
+  {
+    id: "spin",
+    label: "Spin Class",
+    group: "Indoor",
+    // Out of the saddle and against resistance, which brings the glutes
+    // in properly and asks more of the trunk than steady riding.
+    primary: ["Quads", "Glutes"],
+    secondary: ["Hamstrings", "Calves", "Core"],
+    pace: "km/h",
+    distanceUnit: "km",
+  },
+  {
+    id: "rower",
+    label: "Rowing Machine",
+    group: "Indoor",
+    // A leg press with a pull on the end. The erectors hold the whole
+    // thing together, which is why they are in here and not in the bike.
+    primary: ["Quads", "Back"],
+    secondary: ["Glutes", "Hamstrings", "Biceps", "Core", "Lower Back"],
+    pace: "min/500m",
+    distanceUnit: "m",
+  },
+  {
+    id: "elliptical",
+    label: "Elliptical",
+    group: "Indoor",
+    primary: ["Quads"],
+    secondary: ["Glutes", "Hamstrings", "Calves", "Core"],
+    pace: "km/h",
+    distanceUnit: "km",
+  },
+  {
+    id: "stair-climber",
+    label: "Stair Climber",
+    group: "Indoor",
+    // Step after step of hip and knee extension against bodyweight.
+    primary: ["Quads", "Glutes", "Calves"],
+    secondary: ["Hamstrings", "Core"],
+    pace: null,
+    distanceUnit: null,
+  },
+  {
+    id: "assault-bike",
+    label: "Assault Bike",
+    group: "Indoor",
+    // The arms drive as hard as the legs, which is the whole point of it
+    // and the reason it is the most systemically brutal thing on here.
+    primary: ["Quads"],
+    secondary: ["Glutes", "Hamstrings", "Chest", "Back", "Front Delts", "Core"],
+    pace: null,
+    distanceUnit: null,
+  },
+  {
+    id: "jump-rope",
+    label: "Jump Rope",
+    group: "Indoor",
+    primary: ["Calves"],
+    secondary: ["Quads", "Shins", "Core"],
+    pace: null,
+    distanceUnit: null,
   },
   {
     id: "other",
     label: "Other",
-    // Rowing, swimming, five-a-side, a climbing session. The app cannot
-    // know what these worked, and guessing would be worse than the gap,
-    // so they are logged and timed but leave the map alone. The form
-    // says so rather than letting it look like a bug.
+    group: "Indoor",
+    // Five-a-side, a climbing session, a martial arts class. The app
+    // cannot know what these worked, and guessing would be worse than
+    // the gap, so they are logged and timed but leave the map alone.
+    // The form says so rather than letting it look like a bug.
     primary: [],
     secondary: [],
     pace: null,
+    distanceUnit: null,
   },
 ];
+
+const ACTIVITY_GROUPS = ["Outdoor", "Indoor"];
 
 function activityType(id) {
   return ACTIVITY_TYPES.find((t) => t.id === id) || ACTIVITY_TYPES[0];
@@ -3247,12 +3867,18 @@ function formatDuration(totalSeconds) {
    like it was built by someone who does not do the sport. */
 function activityPace(a) {
   const secs = activitySeconds(a);
-  const km = parseFloat((a || {}).distance);
+  const dist = parseFloat((a || {}).distance);
   const type = activityType((a || {}).type);
-  if (!secs || !Number.isFinite(km) || km <= 0 || !type.pace) return null;
-  if (type.pace === "km/h") return `${(km / (secs / 3600)).toFixed(1)} km/h`;
-  const perKm = secs / km;
-  return `${Math.floor(perKm / 60)}:${String(Math.round(perKm % 60)).padStart(2, "0")} /km`;
+  if (!secs || !Number.isFinite(dist) || dist <= 0 || !type.pace) return null;
+  if (type.pace === "km/h") return `${(dist / (secs / 3600)).toFixed(1)} km/h`;
+  // The split is per whatever unit the sport counts in: a kilometre on
+  // foot, 500 metres on an erg, 100 in the pool.
+  const per = type.pace === "min/500m" ? 500 : type.pace === "min/100m" ? 100 : 1;
+  const unitsCovered = dist / per;
+  if (unitsCovered <= 0) return null;
+  const split = secs / unitsCovered;
+  const label = type.pace.replace("min", "");
+  return `${Math.floor(split / 60)}:${String(Math.round(split % 60)).padStart(2, "0")} ${label}`;
 }
 
 function activityLabel(a) {
@@ -3299,6 +3925,434 @@ function computeMuscleLastMap(sessions, activities) {
 
 // Every screen that draws readiness reads both halves of it, so the
 // reading is made in one place rather than three that can drift apart.
+/* ---------------------------------------------------------------
+   STATS FOR NERDS
+
+   Everything the log already knows but never says out loud. One pass
+   over the history producing every figure the screen draws, because
+   twelve separate walks over a thousand sessions on a phone is twelve
+   times the work for the same answer.
+
+   Two judgements run through all of it:
+
+   Anything that depends on a field the user may never have filled in is
+   reported against the number of times it WAS filled in, never against
+   the total. "You go to failure on 68 of 132 recorded sets" is true;
+   quoting it against 1,509 would be a lie about the other 1,377.
+
+   Anything with too little behind it is not shown at all. A "biggest
+   mover" computed from two sessions is noise with a percentage sign on
+   it, so a lift needs six before it can claim to have moved.
+--------------------------------------------------------------- */
+
+// Sessions imported from a spreadsheet carry a made-up time of day — the
+// importer stamped them all 09:00:00.000 — and a clock chart built from
+// those says nothing except when the import ran. A timestamp the app
+// wrote itself has seconds and milliseconds on it; one typed by a human
+// or generated by an importer sits exactly on the minute. So the clock
+// uses only the sessions it actually timed, and says how many that was.
+function wasSelfTimed(session) {
+  if (!session || !session.at || !String(session.at).includes("T")) return false;
+  const d = new Date(session.at);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getSeconds() !== 0 || d.getMilliseconds() !== 0;
+}
+
+const REP_BANDS = [
+  { key: "1-5", label: "1–5", max: 5, note: "strength" },
+  { key: "6-8", label: "6–8", max: 8, note: "heavy hypertrophy" },
+  { key: "9-12", label: "9–12", max: 12, note: "hypertrophy" },
+  { key: "13-20", label: "13–20", max: 20, note: "metabolic" },
+  { key: "20+", label: "20+", max: Infinity, note: "endurance" },
+];
+
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// Which of the three a muscle belongs to, for the balance donut. Arms and
+// delts follow the movement that trains them rather than sitting in a
+// fourth slice nobody thinks in.
+const PPL_GROUP = {
+  Chest: "Push", "Front Delts": "Push", "Side Delts": "Push", Triceps: "Push",
+  Back: "Pull", "Rear Delts": "Pull", Biceps: "Pull", Traps: "Pull", Forearms: "Pull", "Lower Back": "Pull",
+  Quads: "Legs", Hamstrings: "Legs", Glutes: "Legs", Calves: "Legs", Shins: "Legs", Core: "Legs",
+};
+
+// A lift needs this many logged sessions before its trend is worth a
+// number; below it the first and last readings are just two numbers.
+const MOVER_MIN_SESSIONS = 6;
+
+function computeNerdStats(sessions, activities) {
+  const list = (sessions || []).filter((s) => s && (s.exercises || []).length);
+  const acts = activities || [];
+  const out = {
+    sessions: list.length,
+    sets: 0,
+    reps: 0,
+    tonnage: 0,
+    effort: { total: 0, byRir: [0, 0, 0, 0], hardestMuscle: null },
+    muscleSets: {},
+    repBands: {},
+    byHour: new Array(24).fill(0),
+    timedSessions: 0,
+    byWeekday: new Array(7).fill(0),
+    exerciseSets: {},
+    distinctExercises: 0,
+    ppl: { Push: 0, Pull: 0, Legs: 0 },
+    movers: [],
+    weekly: [],
+    firstDate: null,
+    lastDate: null,
+    daysTrained: 0,
+    longestStreak: 0,
+    longestGap: 0,
+    busiestMonth: null,
+    cardio: { count: 0, seconds: 0, byType: {} },
+    setsPerSession: 0,
+    biggestSession: null,
+  };
+  if (!list.length && !acts.length) return out;
+
+  REP_BANDS.forEach((b) => { out.repBands[b.key] = 0; });
+  const failureByMuscle = {};
+  const e1rmByExercise = {};
+  const weekTonnage = {};
+  const dayKeys = new Set();
+  const monthCount = {};
+
+  for (const s of list) {
+    const when = new Date(s.at || `${s.date}T12:00:00`);
+    if (s.date) {
+      dayKeys.add(s.date);
+      const month = s.date.slice(0, 7);
+      monthCount[month] = (monthCount[month] || 0) + 1;
+      if (!out.firstDate || s.date < out.firstDate) out.firstDate = s.date;
+      if (!out.lastDate || s.date > out.lastDate) out.lastDate = s.date;
+    }
+    if (wasSelfTimed(s)) {
+      out.byHour[when.getHours()] += 1;
+      out.timedSessions += 1;
+    }
+    // getDay is Sunday-first; the chart reads Monday-first like a diary.
+    out.byWeekday[(when.getDay() + 6) % 7] += 1;
+
+    let sessionSets = 0;
+    let sessionTonnage = 0;
+    for (const ex of s.exercises || []) {
+      const name = ex.name || ex.id;
+      const setList = ex.sets || [];
+      sessionSets += setList.length;
+      out.exerciseSets[name] = (out.exerciseSets[name] || 0) + setList.length;
+      if (ex.muscle) {
+        out.muscleSets[ex.muscle] = (out.muscleSets[ex.muscle] || 0) + setList.length;
+        const group = PPL_GROUP[ex.muscle];
+        if (group) out.ppl[group] += setList.length;
+      }
+      let bestE1rm = 0;
+      for (const st of setList) {
+        out.sets += 1;
+        const reps = parseInt(st.reps, 10);
+        const weight = parseFloat(st.weight);
+        if (Number.isFinite(reps) && reps > 0) {
+          out.reps += reps;
+          const band = REP_BANDS.find((bnd) => reps <= bnd.max);
+          if (band) out.repBands[band.key] += 1;
+        }
+        // Positive weight only. Assisted work stores its assistance as a
+        // negative — a -30 assisted pull-up is bodyweight minus 30, not
+        // minus 30 kilos moved — and counting it raw subtracts from the
+        // total, which is worse than leaving it out.
+        if (Number.isFinite(weight) && Number.isFinite(reps) && weight > 0 && reps > 0) {
+          sessionTonnage += weight * reps;
+          bestE1rm = Math.max(bestE1rm, estimateOneRM(weight, reps) || 0);
+        }
+        if (st.rir !== null && st.rir !== undefined && st.rir !== "") {
+          const rir = Math.max(0, Math.min(3, Number(st.rir)));
+          if (Number.isFinite(rir)) {
+            out.effort.total += 1;
+            out.effort.byRir[rir] += 1;
+            if (rir === 0 && ex.muscle) failureByMuscle[ex.muscle] = (failureByMuscle[ex.muscle] || 0) + 1;
+          }
+        }
+      }
+      if (bestE1rm > 0 && s.date) {
+        (e1rmByExercise[name] = e1rmByExercise[name] || []).push({ date: s.date, value: bestE1rm });
+      }
+    }
+    out.tonnage += sessionTonnage;
+    if (!out.biggestSession || sessionSets > out.biggestSession.sets) {
+      out.biggestSession = { sets: sessionSets, date: s.date, name: s.dayName || s.split || "Workout" };
+    }
+    if (s.date) {
+      // ISO-ish week key: the Monday the session fell in.
+      const monday = new Date(when);
+      monday.setDate(monday.getDate() - ((when.getDay() + 6) % 7));
+      const key = dateStrOf(monday);
+      weekTonnage[key] = (weekTonnage[key] || 0) + sessionTonnage;
+    }
+  }
+
+  out.distinctExercises = Object.keys(out.exerciseSets).length;
+  out.setsPerSession = list.length ? out.sets / list.length : 0;
+  out.effort.hardestMuscle = Object.entries(failureByMuscle).sort((a, b) => b[1] - a[1])[0] || null;
+
+  /* Biggest movers: the mean of the first three logged sessions against
+     the mean of the last three, rather than first-against-last. One
+     unusually good or bad day at either end otherwise decides the whole
+     verdict, and on a year of data it usually does. */
+  out.movers = Object.entries(e1rmByExercise)
+    .filter(([, rows]) => rows.length >= MOVER_MIN_SESSIONS)
+    .map(([name, rows]) => {
+      const sorted = [...rows].sort((a, b) => (a.date < b.date ? -1 : 1));
+      const mean = (arr) => arr.reduce((t, r) => t + r.value, 0) / arr.length;
+      const from = mean(sorted.slice(0, 3));
+      const to = mean(sorted.slice(-3));
+      return { name, from, to, pct: from > 0 ? ((to - from) / from) * 100 : 0, sessions: sorted.length };
+    })
+    .sort((a, b) => b.pct - a.pct);
+
+  out.weekly = Object.keys(weekTonnage).sort().map((week) => ({ week, tonnage: Math.round(weekTonnage[week]) }));
+
+  // Cardio counts as a day trained, so it belongs in the day set too.
+  for (const a of acts) {
+    out.cardio.count += 1;
+    out.cardio.seconds += activitySeconds(a) || 0;
+    const label = activityLabel(a);
+    const entry = (out.cardio.byType[label] = out.cardio.byType[label] || { count: 0, seconds: 0, distance: 0, unit: activityType(a.type).distanceUnit });
+    entry.count += 1;
+    entry.seconds += activitySeconds(a) || 0;
+    const dist = parseFloat(a.distance);
+    if (Number.isFinite(dist)) entry.distance += dist;
+    if (a.date) dayKeys.add(a.date);
+  }
+
+  out.daysTrained = dayKeys.size;
+  const days = [...dayKeys].sort();
+  if (days.length) {
+    let streak = 1, best = 1, gap = 0;
+    for (let i = 1; i < days.length; i++) {
+      const diff = Math.round((new Date(`${days[i]}T12:00:00`) - new Date(`${days[i - 1]}T12:00:00`)) / 86400000);
+      if (diff === 1) { streak += 1; best = Math.max(best, streak); } else { streak = 1; }
+      // A gap is the days off between two sessions, not the span.
+      if (diff > 1) gap = Math.max(gap, diff - 1);
+    }
+    out.longestStreak = best;
+    out.longestGap = gap;
+  }
+  const busiest = Object.entries(monthCount).sort((a, b) => b[1] - a[1])[0];
+  out.busiestMonth = busiest ? { month: busiest[0], count: busiest[1] } : null;
+  return out;
+}
+
+/* ---------------------------------------------------------------
+   TRAINING LOAD — ACUTE:CHRONIC WORKLOAD RATIO
+
+   The readiness map answers "can I train chest today". It cannot answer
+   "should I train at all", and it cannot be made to: it remembers only
+   each muscle's most recent session, so Monday's legs have left it by
+   Thursday and a four-day block reads like a single day.
+
+   Rather than invent a second measure, this is the one sports science
+   already uses, built the way the literature builds it.
+
+   LOAD — session RPE. Foster's method: how hard the session felt, 0-10,
+   multiplied by how many minutes it lasted. One number in arbitrary
+   units that puts a set of squats and a 10k on the same scale, which is
+   the whole reason it is the standard for mixed training.
+
+   For a lift, the session's RPE is the mean across its logged sets
+   (10 - RIR); minutes come from the session's own elapsed time where it
+   was recorded, and otherwise from the sets it contains at the rest
+   lengths configured in Training Defaults. Sessions logged before the
+   app stored elapsed time therefore get an estimate rather than nothing.
+   For a run or a row, both numbers are already exact.
+
+   ACUTE AND CHRONIC — exponentially weighted moving averages, 7 days and
+   28 days, with lambda = 2/(N+1). Williams et al. (2017) showed EWMA to
+   be a more sensitive predictor of injury than the rolling averages the
+   method originally used, because a rolling window treats a session
+   nine days ago as worth exactly as much as one yesterday and then worth
+   nothing at all the next morning.
+
+   THE RATIO — acute over chronic. What you have done this week measured
+   against what you are conditioned for, which is the point: the same
+   week is a normal week for one person and a spike for another, and an
+   absolute number cannot tell them apart.
+
+   Gabbett's thresholds, from injury data rather than from taste:
+
+     below 0.8   detraining; the resilience that protects you erodes
+     0.8 - 1.3   the "sweet spot", where injury rates are lowest
+     1.3 - 1.5   ramping up faster than you are adapting
+     above 1.5   2-4x the injury rate of the sweet spot
+
+   Sources: Foster (1998) session RPE; Banister's impulse-response model;
+   Gabbett, Br J Sports Med 2016; Williams et al., Br J Sports Med 2017.
+--------------------------------------------------------------- */
+
+const ACUTE_DAYS = 7;
+const CHRONIC_DAYS = 28;
+const ACUTE_LAMBDA = 2 / (ACUTE_DAYS + 1);
+const CHRONIC_LAMBDA = 2 / (CHRONIC_DAYS + 1);
+
+// Working time for one set, in seconds. Rest is far the larger part of a
+// set's clock and comes from the user's own configured rest lengths.
+const SET_WORK_SECONDS = 45;
+// A session RPE for sets logged without one. 7 is "hard but not to
+// failure", which is what an untagged working set most often was, and
+// matches the readiness map's own assumption that unlogged effort is not
+// failure work.
+const ASSUMED_SESSION_RPE = 7;
+// Below this the chronic average is too thin to divide by — a fortnight
+// of training is the least that makes a 28-day average mean anything.
+const MIN_CHRONIC_LOAD = 20;
+
+// Minutes a lifting session took: measured if the session recorded it,
+// otherwise its sets at the rest lengths in force.
+function sessionMinutes(session, settings) {
+  if (session.startedAt && session.at) {
+    const mins = (new Date(session.at) - new Date(session.startedAt)) / 60000;
+    // A session left open overnight is not a six-hour workout.
+    if (mins > 0 && mins < 240) return mins;
+  }
+  let seconds = 0;
+  for (const ex of session.exercises || []) {
+    const full = ALL_EXERCISES_BY_ID[ex.id];
+    const type = ex.type || (full && full.type) || "isolation";
+    const rest = restSecondsFor({ type }, settings);
+    const count = (ex.sets || []).length;
+    seconds += count * (SET_WORK_SECONDS + rest);
+  }
+  return seconds / 60;
+}
+
+// Foster session RPE: how hard it felt, times how long it lasted.
+function sessionRPE(session) {
+  let sum = 0, n = 0;
+  for (const ex of session.exercises || []) {
+    for (const st of ex.sets || []) {
+      if (st.rir !== null && st.rir !== undefined && st.rir !== "") {
+        const rir = Number(st.rir);
+        if (Number.isFinite(rir)) { sum += 10 - rir; n++; }
+      }
+    }
+  }
+  return n ? sum / n : ASSUMED_SESSION_RPE;
+}
+
+function sessionTrainingLoad(session, settings) {
+  const sets = (session.exercises || []).reduce((t, ex) => t + (ex.sets || []).length, 0);
+  if (!sets) return 0;
+  return sessionRPE(session) * sessionMinutes(session, settings);
+}
+
+function activityTrainingLoad(activity) {
+  const secs = activitySeconds(activity);
+  if (!secs) return 0;
+  const rpe = Number(activity.rpe);
+  return (Number.isFinite(rpe) && rpe > 0 ? rpe : ASSUMED_SESSION_RPE) * (secs / 60);
+}
+
+/* The two averages and the ratio between them.
+
+   Walked forward a day at a time from the first thing ever logged, so a
+   rest day is a real zero rather than a gap — that is what makes the
+   acute average fall when you stop, and the whole measure depends on it. */
+function trainingLoadRatio(sessions, activities, settings) {
+  const byDay = {};
+  const addDay = (date, load) => {
+    if (!date || !load) return;
+    byDay[date] = (byDay[date] || 0) + load;
+  };
+  for (const s of sessions || []) addDay(s.date, sessionTrainingLoad(s, settings));
+  for (const a of activities || []) addDay(a.date, activityTrainingLoad(a));
+
+  const days = Object.keys(byDay).sort();
+  if (!days.length) return { acute: 0, chronic: 0, ratio: null, ready: false };
+
+  const today = todayStr();
+  let acute = 0, chronic = 0;
+  const cursor = new Date(`${days[0]}T12:00:00`);
+  const end = new Date(`${today}T12:00:00`);
+  // A very long-dormant history should not cost a long loop for nothing.
+  if ((end - cursor) / 86400000 > 800) cursor.setTime(end - 800 * 86400000);
+  while (cursor <= end) {
+    const load = byDay[dateStrOf(cursor)] || 0;
+    acute = load * ACUTE_LAMBDA + (1 - ACUTE_LAMBDA) * acute;
+    chronic = load * CHRONIC_LAMBDA + (1 - CHRONIC_LAMBDA) * chronic;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  const ready = chronic >= MIN_CHRONIC_LOAD;
+  return { acute, chronic, ratio: ready ? acute / chronic : null, ready };
+}
+
+/* What the scale can answer if you drag the marker off where you are.
+
+   Both directions have an exact answer, and they are different questions.
+
+   DOWN is a rest calculation. With no training at all, a day multiplies
+   acute by (1 - ACUTE_LAMBDA) and chronic by (1 - CHRONIC_LAMBDA), so the
+   ratio falls by a fixed factor every day regardless of where it started
+   — 0.806 with these constants. Inverting that gives the time to any
+   lower ratio in closed form rather than by simulating days forward.
+
+   UP cannot be waited for; it takes a session. Putting a load L into
+   today gives acute' = L·λa + (1-λa)·acute and chronic' = L·λc +
+   (1-λc)·chronic, and setting acute'/chronic' to the target solves for L
+   directly. The answer is a session-RPE load, so it is quoted back as the
+   minutes at RPE 8 that would produce it — which is the form you can act
+   on. Above λa/λc (3.63) no single session reaches the target; the scale
+   stops at 2.0, so that never bites here. */
+const REST_DAY_DECAY = (1 - ACUTE_LAMBDA) / (1 - CHRONIC_LAMBDA);
+// The effort a quoted session is priced at. Hard, but not the once-a-month
+// kind, so the minutes it implies are minutes anyone recognises.
+const QUOTED_RPE = 8;
+
+function hoursOfRestToReach(current, target) {
+  if (!(current > 0) || !(target > 0) || target >= current) return null;
+  return (Math.log(target / current) / Math.log(REST_DAY_DECAY)) * 24;
+}
+
+function sessionLoadToReach(acute, chronic, target) {
+  const denominator = ACUTE_LAMBDA - target * CHRONIC_LAMBDA;
+  if (denominator <= 0) return null;
+  const load = (target * (1 - CHRONIC_LAMBDA) * chronic - (1 - ACUTE_LAMBDA) * acute) / denominator;
+  return load > 0 ? load : null;
+}
+
+// "09:00 Tue 16 Sep" — 24-hour, because the question was "when", and a
+// weekday because "in 38 hours" is not a thing anyone can picture.
+function formatWhen(date) {
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm} ${dayNames[date.getDay()]} ${date.getDate()} ${MONTH_ABBREV[date.getMonth()]}`;
+}
+
+/* Gabbett's zones. The colours are the map's own three stages, so the bar
+   needs no legend and follows every colour scheme including the
+   colour-blind ones. */
+const LOAD_ZONES = [
+  { min: 0, max: 0.8, label: "Undertraining", stage: "amber" },
+  { min: 0.8, max: 1.3, label: "Sweet spot", stage: "green" },
+  { min: 1.3, max: 1.5, label: "Ramping up", stage: "amber" },
+  { min: 1.5, max: Infinity, label: "Spike — take a day", stage: "red" },
+];
+// The bar runs to 2.0: past that the ratio has stopped saying anything
+// more than "far too much, too fast".
+const LOAD_SCALE_MAX = 2;
+
+function loadZone(ratio) {
+  return LOAD_ZONES.find((z) => ratio < z.max) || LOAD_ZONES[LOAD_ZONES.length - 1];
+}
+
+// Both halves of the history, since a run counts towards this as much as
+// a leg day does.
+async function loadTrainingLoad(settings) {
+  const hist = (await safeGet("workout-history")) || [];
+  const activities = (await safeGet("activity-history")) || [];
+  return trainingLoadRatio(hist, activities, settings);
+}
+
 async function loadRecoveryMap() {
   const hist = (await safeGet("workout-history")) || [];
   const activities = (await safeGet("activity-history")) || [];
@@ -3308,6 +4362,20 @@ async function loadRecoveryMap() {
 async function addActivity(activity) {
   const list = (await safeGet("activity-history")) || [];
   const next = [...list, activity].slice(-200);
+  await safeSet("activity-history", next);
+  return next;
+}
+
+/* Replaces an entry in place, keeping the list in date order.
+
+   A moved activity has to be re-sorted, not just overwritten where it
+   sat: change a run from Friday to Monday and it belongs earlier in the
+   list, and every reader here assumes the order is the order. */
+async function updateActivity(activity) {
+  const list = (await safeGet("activity-history")) || [];
+  const next = list
+    .map((a) => (a.id === activity.id ? activity : a))
+    .sort((a, b) => (sessionTime(a) || 0) - (sessionTime(b) || 0));
   await safeSet("activity-history", next);
   return next;
 }
@@ -3371,9 +4439,15 @@ function formatSets(n) {
    STREAK / CONSISTENCY
 --------------------------------------------------------------- */
 
+/* Days with training on them, which is not the same as days with a
+   workout on them. A run is training; so is a hike. Counting only the
+   lifting log would break a streak on a day someone spent an hour on
+   their feet, which is both wrong and the sort of thing that makes a
+   streak feel arbitrary enough to stop caring about. */
 async function loadTrainedDates() {
   const hist = (await safeGet("workout-history")) || [];
-  return new Set(hist.map((s) => s.date));
+  const activities = (await safeGet("activity-history")) || [];
+  return new Set([...hist.map((s) => s.date), ...activities.map((a) => a.date)].filter(Boolean));
 }
 
 // Consecutive calendar days trained, counting backward from today (or
@@ -3383,10 +4457,16 @@ function computeCurrentStreak(trainedDates) {
   let streak = 0;
   const d = new Date();
   d.setHours(0, 0, 0, 0);
-  if (!trainedDates.has(d.toISOString().slice(0, 10))) {
+  // dateStrOf, not toISOString: sessions are dated in local time, and
+  // local midnight converted to UTC is the previous day anywhere east of
+  // Greenwich. Comparing the two forms made the streak start counting
+  // from yesterday, so today's session was invisible to it and the whole
+  // run came out a day short — while the calendar, which builds its keys
+  // locally, showed the day correctly. Same fix in the heatmap below.
+  if (!trainedDates.has(dateStrOf(d))) {
     d.setDate(d.getDate() - 1);
   }
-  while (trainedDates.has(d.toISOString().slice(0, 10))) {
+  while (trainedDates.has(dateStrOf(d))) {
     streak++;
     d.setDate(d.getDate() - 1);
   }
@@ -3401,7 +4481,7 @@ function buildHeatmapDays(trainedDates, weeks) {
   for (let i = totalDays - 1; i >= 0; i--) {
     const d = new Date(end);
     d.setDate(d.getDate() - i);
-    const ds = d.toISOString().slice(0, 10);
+    const ds = dateStrOf(d);
     days.push({ date: ds, trained: trainedDates.has(ds) });
   }
   return days;
@@ -4363,7 +5443,6 @@ function computeProgrammeStats(programme, allSessions) {
   return {
     sessions: done,
     planned,
-    adherence: planned ? Math.round((done / planned) * 100) : 0,
     totalSets,
     totalVolume: Math.round(totalVolume),
     gainers,
@@ -6108,10 +7187,10 @@ const BODY_FIGURE = { front: toParts(FRONT_MUSCLES), back: toParts(BACK_MUSCLES)
 // coordinate space, so it needs its own window onto the same canvas.
 const BODY_VIEWBOX = { front: "0 0 35 93", back: "37 0 35 93" };
 
-function BodySide({ label, view, stages, selected, onSelect }) {
+function BodySide({ label, view, stages, selected, onSelect, fillFor, compact }) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <svg viewBox={BODY_VIEWBOX[view]} style={{ width: "100%", maxWidth: 155 }}>
+      <svg viewBox={BODY_VIEWBOX[view]} style={{ width: "100%", maxWidth: compact ? 120 : 155 }}>
         {BODY_FIGURE[view].map((p) => {
           const isMuscle = !!p.muscle;
           const isSelected = isMuscle && selected === p.muscle;
@@ -6127,11 +7206,11 @@ function BodySide({ label, view, stages, selected, onSelect }) {
               d={p.d}
               data-muscle={p.muscle || undefined}
               data-stage={stage || undefined}
-              fill={isMuscle ? STAGE_COLORS[stage] : NEUTRAL_BOX.value}
+              fill={isMuscle ? (fillFor ? fillFor(p.muscle) : STAGE_COLORS[stage]) : NEUTRAL_BOX.value}
               stroke={
                 isSelected
-                  ? outlineColorFor(STAGE_COLORS[stage])
-                  : shape && shape.width
+                  ? outlineColorFor(fillFor ? fillFor(p.muscle) : STAGE_COLORS[stage])
+                  : shape && shape.width && !fillFor
                     ? outlineColorFor(STAGE_COLORS[stage])
                     : COLORS.bg
               }
@@ -6202,10 +7281,363 @@ function BodyMap({ dates }) {
   );
 }
 
+/* Training load, as a scale with a marker rather than a filling bar.
+
+   A bar that fills says "more is worse", and that is not what the ratio
+   means: too little is its own risk, and the target is a band in the
+   middle. So the colour belongs to the scale and the marker says where
+   on it you are — the same way a fuel gauge or a tuner reads.
+
+   No advice line underneath. The zone is named, the marker is placed,
+   and the numbers under the track say where the boundaries fall; a
+   paragraph repeating that in words is just something to scroll past. */
+/* What the scale is, behind a button rather than under the bar.
+
+   The gauge itself says nothing in words on purpose, which only works if
+   the words are somewhere. Terminology, the arithmetic behind both
+   numbers, the zone boundaries and the papers they come from live here,
+   one tap away and shut by default. */
+const LOAD_SOURCES = [
+  {
+    cite: "Foster C. Monitoring training in athletes with reference to overtraining syndrome. Med Sci Sports Exerc, 1998.",
+    what: "Session RPE — effort times duration as one training load.",
+    url: "https://pubmed.ncbi.nlm.nih.gov/9662690/",
+  },
+  {
+    cite: "Gabbett TJ. The training—injury prevention paradox. Br J Sports Med, 2016;50:273–280.",
+    what: "The zones on the scale, from injury rates across several sports.",
+    url: "https://pubmed.ncbi.nlm.nih.gov/26758673/",
+  },
+  {
+    cite: "Williams S, West S, Cross MJ, Stokes KA. Better way to determine the acute:chronic workload ratio? Br J Sports Med, 2017;51:209–210.",
+    what: "Exponentially weighted averages rather than rolling ones.",
+    url: "https://pubmed.ncbi.nlm.nih.gov/28003238/",
+  },
+];
+
+function LoadGaugeInfo({ acute, chronic, ratio }) {
+  const label = { color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 };
+  const body = { color: COLORS.text, fontSize: 11.5, lineHeight: 1.5 };
+  const dim = { color: COLORS.textDim, fontSize: 11, lineHeight: 1.5 };
+  const mono = { fontFamily: "'JetBrains Mono', monospace" };
+  return (
+    <div data-testid="load-info" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: 14, marginTop: 10 }}>
+      <div style={label}>What this is</div>
+      <div style={{ ...body, marginBottom: 14 }}>
+        How much you have trained lately, against how much you are conditioned for. The
+        acute:chronic workload ratio.
+      </div>
+
+      <div style={label}>Your numbers</div>
+      <div style={{ marginBottom: 14 }}>
+        {[
+          ["Acute", `${Math.round(acute)} AU`, "last 7 days, weighted to the recent"],
+          ["Chronic", `${Math.round(chronic)} AU`, "last 28 days, same weighting"],
+          ["Ratio", ratio.toFixed(2), "acute ÷ chronic"],
+        ].map(([name, value, note]) => (
+          <div key={name} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "4px 0" }}>
+            <span style={{ ...body, width: 58, flexShrink: 0 }}>{name}</span>
+            <span style={{ ...mono, color: COLORS.accent, fontSize: 12, width: 58, flexShrink: 0 }}>{value}</span>
+            <span style={{ ...dim, flex: 1, minWidth: 0 }}>{note}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={label}>Where a session's load comes from</div>
+      <div style={{ ...dim, marginBottom: 14 }}>
+        Effort out of 10, times minutes. A lift's effort is the average of its logged sets
+        (10 − RIR, so a set to failure is 10); its minutes come from the session clock, or
+        from its sets at your rest lengths for anything logged before the app timed itself.
+        A run has both already. AU is arbitrary units — the number only means anything
+        against your own other sessions.
+      </div>
+
+      <div style={label}>The zones</div>
+      <div style={{ marginBottom: 14 }}>
+        {[
+          ["under 0.8", "Undertraining", "amber", "detrained tissue is easier to hurt"],
+          ["0.8 – 1.3", "Sweet spot", "green", "lowest injury rates"],
+          ["1.3 – 1.5", "Ramping up", "amber", "faster than you are adapting"],
+          ["over 1.5", "Spike", "red", "two to four times the injury rate"],
+        ].map(([range, name, stage, note]) => (
+          <div key={name} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "4px 0" }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: STAGE_COLORS[stage], flexShrink: 0, alignSelf: "center" }} />
+            <span style={{ ...mono, color: COLORS.textDim, fontSize: 10.5, width: 58, flexShrink: 0 }}>{range}</span>
+            <span style={{ ...body, width: 84, flexShrink: 0 }}>{name}</span>
+            <span style={{ ...dim, flex: 1, minWidth: 0 }}>{note}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={label}>Dragging the marker</div>
+      <div style={{ ...dim, marginBottom: 14 }}>
+        Down: how long of doing nothing gets you there. Rest is the only thing that lowers
+        the ratio, and it falls by the same factor each day, so the hours are exact rather
+        than estimated. Up: resting cannot raise it, so it prices the session that would
+        instead. Nothing you drag is saved.
+      </div>
+
+      <div style={label}>Papers</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {LOAD_SOURCES.map((src) => (
+          <a
+            key={src.url}
+            href={src.url}
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", display: "block" }}
+          >
+            <span style={{ ...dim, display: "block", color: COLORS.accent }}>{src.what}</span>
+            <span style={{ ...dim, display: "block", fontSize: 10.5 }}>{src.cite}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LoadGauge({ ratio, ready, acute, chronic }) {
+  // Where the marker is being dragged to, or null when it is just showing
+  // where you are. A drag never changes anything — it lets go and snaps
+  // back — so this is view state and nothing else.
+  const [target, setTarget] = useState(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const trackRef = useRef(null);
+
+  const pct = (v) => `${Math.max(0, Math.min(100, (v / LOAD_SCALE_MAX) * 100))}%`;
+  if (!ready) {
+    return (
+      <div data-tour="load-gauge" style={{ marginTop: 18 }}>
+        <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 7 }}>
+          Training Load
+        </div>
+        <div style={{ height: 14, borderRadius: 7, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}` }} />
+        <div style={{ color: COLORS.textDim, fontSize: 11.5, marginTop: 7 }}>
+          Building a baseline — this needs a few weeks of training to compare against.
+        </div>
+      </div>
+    );
+  }
+  const zone = loadZone(ratio);
+  const colour = STAGE_COLORS[zone.stage];
+  const shown = target === null ? ratio : target;
+  const shownZone = loadZone(shown);
+  const shownColour = STAGE_COLORS[shownZone.stage];
+
+  // Red where the ratio is dangerous at either end, green through the
+  // sweet spot, amber over the shoulders between them.
+  const gradient = `linear-gradient(to right,
+    ${STAGE_COLORS.red} 0%,
+    ${STAGE_COLORS.amber} ${pct(0.5)},
+    ${STAGE_COLORS.green} ${pct(0.9)},
+    ${STAGE_COLORS.green} ${pct(1.2)},
+    ${STAGE_COLORS.amber} ${pct(1.4)},
+    ${STAGE_COLORS.red} ${pct(1.7)},
+    ${STAGE_COLORS.red} 100%)`;
+
+  function ratioAt(clientX) {
+    const box = trackRef.current && trackRef.current.getBoundingClientRect();
+    if (!box || !box.width) return ratio;
+    const share = Math.max(0, Math.min(1, (clientX - box.left) / box.width));
+    return Math.round(share * LOAD_SCALE_MAX * 100) / 100;
+  }
+  const onDown = (e) => {
+    // Capture, so a finger that slides off the track keeps dragging rather
+    // than handing the gesture to the page underneath.
+    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+    setTarget(ratioAt(e.clientX));
+  };
+  const onMove = (e) => {
+    if (target === null) return;
+    setTarget(ratioAt(e.clientX));
+  };
+  const onUp = () => setTarget(null);
+
+  /* What the bubble says. Two different questions, decided by which way
+     the marker was dragged, and each answered in the terms you would act
+     on rather than in ratio arithmetic. */
+  const readout = (() => {
+    if (target === null) return null;
+    if (Math.abs(target - ratio) < 0.02) return "where you are";
+    if (target < ratio) {
+      const exact = hoursOfRestToReach(ratio, target);
+      if (exact === null || !Number.isFinite(exact)) return null;
+      // Round once and build the clock time from the rounded figure, so the
+      // two halves of the answer agree: "51h" pointing at a time 50.6 hours
+      // away is the sort of thing someone checks and does not trust again.
+      const hours = Math.round(exact);
+      const when = new Date(Date.now() + hours * HOUR_MS);
+      return `rest ${hours}h · ${formatWhen(when)}`;
+    }
+    const load = sessionLoadToReach(acute, chronic, target);
+    if (load === null) return "not in one session";
+    const minutes = Math.round(load / QUOTED_RPE);
+    if (minutes > 300) return "more than one session";
+    return `train ${minutes} min @ RPE ${QUOTED_RPE} today`;
+  })();
+
+  return (
+    <div data-tour="load-gauge" style={{ marginTop: 18 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 7 }}>
+        <span style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase" }}>
+          Training Load
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <span style={{ color: colour, fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            {zone.label}
+          </span>
+          {/* The bar says nothing in words on purpose. This is where the
+              words are: terminology, the arithmetic, and the papers. */}
+          <button
+            data-testid="load-info-btn"
+            onClick={() => setInfoOpen((v) => !v)}
+            aria-label="What the training load numbers mean"
+            aria-expanded={infoOpen}
+            title="What these numbers mean"
+            style={{
+              width: 20, height: 20, borderRadius: 10, flexShrink: 0, padding: 0,
+              background: infoOpen ? COLORS.accent : "transparent",
+              border: `1px solid ${infoOpen ? COLORS.accent : COLORS.line}`,
+              color: infoOpen ? COLORS.onAccent : COLORS.textDim,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <Info size={12} />
+          </button>
+        </span>
+      </div>
+
+      {/* The bubble exists only mid-drag, and sits above the track so a
+          thumb is not covering the answer it is asking for. */}
+      <div style={{ position: "relative", height: target === null ? 0 : 40, transition: "height 0.12s" }}>
+        {target !== null && (
+          <div
+            data-testid="load-readout"
+            style={{
+              position: "absolute",
+              bottom: 6,
+              left: pct(shown),
+              transform: `translateX(${shown < 0.4 ? "0" : shown > 1.6 ? "-100%" : "-50%"})`,
+              background: COLORS.surfaceRaised,
+              border: `1px solid ${shownColour}`,
+              borderRadius: 10,
+              padding: "5px 9px",
+              whiteSpace: "nowrap",
+              pointerEvents: "none",
+              boxShadow: "0 6px 16px rgba(0,0,0,0.45)",
+            }}
+          >
+            <span style={{ color: shownColour, fontFamily: "'JetBrains Mono', monospace", fontSize: 12.5 }}>
+              {shown.toFixed(2)}
+            </span>
+            {readout && (
+              <span style={{ color: COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, marginLeft: 7 }}>
+                {readout}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div
+        ref={trackRef}
+        role="meter"
+        aria-label="Acute to chronic training load ratio"
+        aria-valuenow={Number(ratio.toFixed(2))}
+        aria-valuemin={0}
+        aria-valuemax={LOAD_SCALE_MAX}
+        aria-valuetext={`${ratio.toFixed(2)}, ${zone.label}`}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        style={{
+          position: "relative",
+          height: 14,
+          borderRadius: 7,
+          background: gradient,
+          border: `1px solid ${COLORS.line}`,
+          // Without this a drag scrolls the page instead of moving the marker.
+          touchAction: "none",
+          cursor: "ew-resize",
+          // Room to grab without making the bar itself fatter.
+          padding: "10px 0",
+          backgroundClip: "content-box",
+          boxSizing: "content-box",
+          marginTop: -10,
+          marginBottom: -10,
+          borderWidth: 0,
+        }}
+      >
+        {/* Where you are. Drawn over the gradient with a dark core and a
+            light outline so it stays visible on red, amber and green. */}
+        <div
+          data-testid="load-marker"
+          style={{
+            position: "absolute",
+            left: pct(shown),
+            top: 6,
+            bottom: 6,
+            width: 3,
+            marginLeft: -1.5,
+            borderRadius: 2,
+            background: COLORS.text,
+            boxShadow: `0 0 0 1.5px ${COLORS.bg}`,
+          }}
+        />
+        {/* While dragging, a faint mark stays where you actually are, so the
+            comparison the drag is asking for is still on screen. */}
+        {target !== null && (
+          <div
+            data-testid="load-anchor"
+            style={{
+              position: "absolute",
+              left: pct(ratio),
+              top: 10,
+              bottom: 10,
+              width: 2,
+              marginLeft: -1,
+              borderRadius: 1,
+              background: COLORS.bg,
+              opacity: 0.75,
+            }}
+          />
+        )}
+      </div>
+      {/* The scale, so the marker has something to be read against. */}
+      <div style={{ position: "relative", height: 14, marginTop: 3 }}>
+        {[0.8, 1.3, 1.5].map((t) => (
+          <span
+            key={t}
+            style={{ position: "absolute", left: pct(t), transform: "translateX(-50%)", color: COLORS.textDim, fontSize: 9.5, fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            {t}
+          </span>
+        ))}
+        <span style={{ position: "absolute", right: 0, color: colour, fontSize: 10.5, fontFamily: "'JetBrains Mono', monospace" }}>
+          {ratio.toFixed(2)}
+        </span>
+      </div>
+      {infoOpen && <LoadGaugeInfo acute={acute} chronic={chronic} ratio={ratio} />}
+    </div>
+  );
+}
+
 const ACTIVITY_ICONS = {
   run: <Footprints size={14} />,
   walk: <Footprints size={14} />,
+  hike: <Footprints size={14} />,
+  treadmill: <Footprints size={14} />,
+  "incline-walk": <Footprints size={14} />,
+  "stair-climber": <Footprints size={14} />,
+  "jump-rope": <Footprints size={14} />,
   cycle: <Bike size={14} />,
+  "stationary-bike": <Bike size={14} />,
+  spin: <Bike size={14} />,
+  "assault-bike": <Bike size={14} />,
+  elliptical: <Bike size={14} />,
+  swim: <Activity size={14} />,
+  rower: <Activity size={14} />,
   other: <Activity size={14} />,
 };
 
@@ -6227,6 +7659,16 @@ function ActivityPanel({ onChanged }) {
   const [distance, setDistance] = useState("");
   const [rpe, setRpe] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  // Defaulted to now, because most entries are logged straight after —
+  // but editable, because the other half are logged that evening, and a
+  // run stamped six hours late tells the readiness map the wrong thing.
+  const [date, setDate] = useState(todayStr);
+  const [time, setTime] = useState(nowTimeStr);
+  // The id being edited, or null when the form is adding a new one. The
+  // same form does both: an edit is the same four fields, and a second
+  // one that drifted out of step with the first would be worse than the
+  // little state this costs.
+  const [editingId, setEditingId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -6244,29 +7686,55 @@ function ActivityPanel({ onChanged }) {
 
   function reset() {
     setAdding(false);
+    setEditingId(null);
     setType("run");
     setName("");
     setMinutes("");
     setSeconds("");
     setDistance("");
     setRpe(null);
+    setDate(todayStr());
+    setTime(nowTimeStr());
+  }
+
+  // Load an existing entry back into the form. The time comes off the
+  // stored timestamp in local terms, so what you see is the clock time
+  // you logged rather than its UTC shadow.
+  function edit(a) {
+    const when = a.at ? new Date(a.at) : null;
+    setEditingId(a.id);
+    setAdding(true);
+    setConfirmId(null);
+    setType(a.type || "run");
+    setName(a.name || "");
+    setMinutes(a.minutes === null || a.minutes === undefined ? "" : String(a.minutes));
+    setSeconds(a.seconds === null || a.seconds === undefined ? "" : String(a.seconds));
+    setDistance(a.distance === null || a.distance === undefined ? "" : String(a.distance));
+    setRpe(a.rpe === null || a.rpe === undefined ? null : Number(a.rpe));
+    setDate(a.date || (when ? dateStrOf(when) : todayStr()));
+    setTime(when && !Number.isNaN(when.getTime())
+      ? `${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}`
+      : nowTimeStr());
   }
 
   async function save() {
     if (!secs) return;
-    const at = new Date().toISOString();
-    const next = await addActivity({
-      id: `act-${Date.now()}`,
-      date: todayStr(),
-      at,
+    const record = {
+      // Keep the id when editing, so this replaces the entry rather than
+      // adding a second copy of it.
+      id: editingId || `act-${Date.now()}`,
+      // The date the user picked, not at.slice(0,10): `at` is UTC, so a
+      // late-evening run east of Greenwich would file itself tomorrow.
+      date,
+      at: atFromDateTime(date, time),
       type,
       name: name.trim() || null,
       minutes: minutes === "" ? null : Number(minutes),
       seconds: seconds === "" ? null : Number(seconds),
       distance: distance === "" ? null : Number(distance),
       rpe: rpe === null ? null : Number(rpe),
-    });
-    setList(next);
+    };
+    setList(editingId ? await updateActivity(record) : await addActivity(record));
     reset();
     // The readiness map above just changed, so Home has to redraw it.
     if (onChanged) onChanged();
@@ -6317,7 +7785,7 @@ function ActivityPanel({ onChanged }) {
         <>
           {recent.length === 0 && !adding && (
             <div style={{ color: COLORS.textDim, fontSize: 12.5, lineHeight: 1.5, marginBottom: 12 }}>
-              Runs, walks and rides, with a time and an effort. They stay out of your lifting stats, but the legs they tired show on the readiness map above.
+              Runs, rides, swims, rows and anything else, with a time and an effort. They stay out of your lifting stats, but they count on your streak, and whatever they tired shows on the readiness map above.
             </div>
           )}
 
@@ -6332,7 +7800,7 @@ function ActivityPanel({ onChanged }) {
                   </span>
                   <span style={{ display: "block", color: COLORS.textDim, fontSize: 11, fontFamily: "'JetBrains Mono', monospace", marginTop: 3 }}>
                     {a.date} · {formatDuration(activitySeconds(a))}
-                    {a.distance ? ` · ${a.distance}km` : ""}
+                    {a.distance ? ` · ${a.distance}${activityType(a.type).distanceUnit || ""}` : ""}
                     {p ? ` · ${p}` : ""}
                     {a.rpe ? ` · RPE ${a.rpe}` : ""}
                   </span>
@@ -6347,14 +7815,24 @@ function ActivityPanel({ onChanged }) {
                     </button>
                   </span>
                 ) : (
-                  <button
-                    onClick={() => setConfirmId(a.id)}
-                    title="Delete activity"
-                    aria-label={`Delete ${activityLabel(a)}`}
-                    style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center" }}
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <span style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => edit(a)}
+                      title="Edit activity"
+                      aria-label={`Edit ${activityLabel(a)}`}
+                      style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${editingId === a.id ? COLORS.accent : COLORS.line}`, background: COLORS.surface, color: editingId === a.id ? COLORS.accent : COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(a.id)}
+                      title="Delete activity"
+                      aria-label={`Delete ${activityLabel(a)}`}
+                      style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.textDim, display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </span>
                 )}
               </div>
             );
@@ -6362,27 +7840,80 @@ function ActivityPanel({ onChanged }) {
 
           {!adding ? (
             <button
-              onClick={() => setAdding(true)}
+              onClick={() => { reset(); setAdding(true); }}
               style={{ width: "100%", marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: "transparent", border: `1px dashed ${COLORS.line}`, borderRadius: 12, padding: "12px 0", color: COLORS.textDim, fontSize: 12.5, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: 0.5 }}
             >
               <Plus size={14} /> Log an activity
             </button>
           ) : (
             <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.accent}`, borderRadius: 14, padding: 14, marginTop: 4 }}>
+              {editingId && (
+                <div style={{ color: COLORS.accent, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>
+                  Editing
+                </div>
+              )}
               <div style={legend}>Activity</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 12 }}>
-                {ACTIVITY_TYPES.map((t) => {
-                  const active = type === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => setType(t.id)}
-                      style={{ padding: "9px 0", borderRadius: 10, border: `1px solid ${active ? COLORS.accent : COLORS.line}`, background: active ? COLORS.accent : COLORS.surfaceRaised, color: active ? COLORS.onAccent : COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 11.5, textTransform: "uppercase" }}
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })}
+              {/* A native select, not a grid of buttons: fifteen options
+                  will not fit at 412px, and the OS picker is one tap and
+                  already scrolls, searches and reads out properly. The
+                  optgroups are the indoor/outdoor split. */}
+              <div style={{ position: "relative", marginBottom: 12 }}>
+                <select
+                  value={type}
+                  onChange={(e) => {
+                    setType(e.target.value);
+                    // The new activity may count distance in different
+                    // units, or not at all, so a figure typed under the
+                    // old one would silently change meaning.
+                    setDistance("");
+                  }}
+                  aria-label="Activity"
+                  style={{
+                    ...field,
+                    width: "100%",
+                    appearance: "none",
+                    WebkitAppearance: "none",
+                    paddingRight: 34,
+                    fontFamily: "'Oswald', sans-serif",
+                    fontSize: 14,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                    borderColor: COLORS.accent,
+                    color: COLORS.text,
+                  }}
+                >
+                  {ACTIVITY_GROUPS.map((g) => (
+                    <optgroup key={g} label={g}>
+                      {ACTIVITY_TYPES.filter((t) => t.group === g).map((t) => (
+                        <option key={t.id} value={t.id}>{t.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={15}
+                  color={COLORS.accent}
+                  style={{ position: "absolute", right: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                />
+              </div>
+
+              <div style={legend}>When</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <input
+                  type="date"
+                  value={date}
+                  max={todayStr()}
+                  onChange={(e) => setDate(e.target.value)}
+                  aria-label="Date"
+                  style={{ ...field, flex: 3 }}
+                />
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  aria-label="Time"
+                  style={{ ...field, flex: 2 }}
+                />
               </div>
 
               {type === "other" && (
@@ -6394,12 +7925,12 @@ function ActivityPanel({ onChanged }) {
                 />
               )}
 
-              <div style={legend}>Time{chosen.pace ? " and distance" : ""}</div>
+              <div style={legend}>How long{chosen.distanceUnit ? " and how far" : ""}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <input type="number" inputMode="numeric" placeholder="min" value={minutes} onChange={(e) => setMinutes(e.target.value)} style={{ ...field, flex: 1 }} />
                 <input type="number" inputMode="numeric" placeholder="sec" value={seconds} onChange={(e) => setSeconds(e.target.value)} style={{ ...field, flex: 1 }} />
-                {chosen.pace && (
-                  <input type="number" inputMode="decimal" placeholder="km" value={distance} onChange={(e) => setDistance(e.target.value)} style={{ ...field, flex: 1 }} />
+                {chosen.distanceUnit && (
+                  <input type="number" inputMode="decimal" placeholder={chosen.distanceUnit} value={distance} onChange={(e) => setDistance(e.target.value)} style={{ ...field, flex: 1 }} />
                 )}
               </div>
               {pace && (
@@ -6453,13 +7984,49 @@ function ActivityPanel({ onChanged }) {
                   disabled={!secs}
                   style={{ flex: 2, background: secs ? COLORS.accent : COLORS.surfaceRaised, border: secs ? "none" : `1px solid ${COLORS.line}`, borderRadius: 10, padding: "11px 0", color: secs ? COLORS.onAccent : COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, textTransform: "uppercase" }}
                 >
-                  {secs ? `Save ${formatDuration(secs)}` : "Enter a time"}
+                  {!secs ? "Enter a time" : editingId ? `Save changes · ${formatDuration(secs)}` : `Save ${formatDuration(secs)}`}
                 </button>
               </div>
             </div>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/* The home screen's headline: today's quote, set in the same display face
+   the old one used. Long quotes step down in size rather than wrapping into
+   six lines on a phone, and the attribution sits under the quote instead of
+   trailing it, which is the difference between a caption and a full stop. */
+function DailyQuote() {
+  const [quote, setQuote] = useState(quoteOfTheDay);
+  // A phone that sat on the side all night is still showing yesterday when it
+  // wakes, so the date is re-read whenever the app comes back to the front.
+  useEffect(() => {
+    const refresh = () => setQuote(quoteOfTheDay());
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
+  const [text, who, year] = quote;
+  const size = text.length > 150 ? 18 : text.length > 110 ? 20 : text.length > 70 ? 24 : text.length > 40 ? 28 : 32;
+
+  return (
+    <div style={{ marginBottom: 20 }} data-testid="daily-quote">
+      <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: size, lineHeight: 1.2, color: COLORS.text }}>
+        {`\u201C${text}\u201D`}
+      </div>
+      <div
+        data-testid="daily-quote-by"
+        style={{ marginTop: 8, color: COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}
+      >
+        {`\u2014 ${who} (${year})`}
+      </div>
     </div>
   );
 }
@@ -6480,6 +8047,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
   // Bumped when an activity is logged or deleted, so the readiness map
   // redraws without a full screen reload.
   const [activityTick, setActivityTick] = useState(0);
+  const [load, setLoad] = useState({ ratio: null, ready: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -6496,6 +8064,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
       setFinishedProgrammes([...finished].reverse());
       const map = await loadRecoveryMap();
       setDates(map);
+      setLoad(await loadTrainingLoad(settings));
       setRecentSessions([...hist].reverse().slice(0, 3));
       setTemplates(tpls);
       setGoalCount(Object.keys(savedGoals).length);
@@ -6517,7 +8086,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
         });
       });
       setWeeklyVolume(volMap);
-      setStreak(computeCurrentStreak(new Set(hist.map((s) => s.date))));
+      setStreak(computeCurrentStreak(await loadTrainedDates()));
 
       setLoading(false);
     }
@@ -6588,18 +8157,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
       >
         Iron Log
       </div>
-      <div
-        style={{
-          fontFamily: "'Oswald', sans-serif",
-          fontSize: 34,
-          lineHeight: 1.05,
-          textTransform: "uppercase",
-          color: COLORS.text,
-          marginBottom: 20,
-        }}
-      >
-        Ready to<br />train?
-      </div>
+      <DailyQuote />
 
       {unfinished && (
         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.accent}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
@@ -6745,6 +8303,7 @@ function HomeScreen({ onStart, onViewHistory, onViewPB, onViewProgress, onStartT
             <BodyMap dates={dates} />
           )
         )}
+        {!loading && <LoadGauge ratio={load.ratio} ready={load.ready} acute={load.acute} chronic={load.chronic} />}
       </div>
 
       <div style={{ borderTop: `1px solid ${COLORS.line}`, paddingTop: 24, marginBottom: 24 }}>
@@ -7685,7 +9244,6 @@ function ProgrammeStatsScreen({ programme, isFinished, onBack, onHome }) {
           <>
             <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
               <div style={tile}><div style={big}>{stats.sessions}</div><div style={small}>of {stats.planned} sessions</div></div>
-              <div style={tile}><div style={big}>{stats.adherence}%</div><div style={small}>adherence</div></div>
             </div>
             <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
               <div style={tile}><div style={big}>{stats.totalSets}</div><div style={small}>sets logged</div></div>
@@ -9528,6 +11086,11 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
         id: `${date}-${Date.now()}`,
         date,
         at,
+        // When the first set was opened. Training load is RPE times
+        // minutes, and a measured duration beats one estimated from the
+        // set count — sessions from before this was recorded fall back
+        // to the estimate.
+        startedAt: startedAtRef.current,
         split,
         exercises: logged,
         supersets: supersets.length ? supersets : undefined,
@@ -10483,6 +12046,22 @@ function metricValue(metric, sets, entry) {
 
 const CHART_PAD = { top: 8, right: 12, bottom: 20, left: 38 };
 
+/* An axis label that fits in the gutter.
+
+   A tenth of a kilo matters on a 12.5kg lateral raise and is noise on a
+   12,368kg training week — and at five figures the decimal does not fit
+   in the space anyway, so it was being clipped. Thousands are abbreviated
+   rather than truncated. */
+function axisTick(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "";
+  const abs = Math.abs(v);
+  if (abs >= 10000) return `${Math.round(v / 1000)}k`;
+  if (abs >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  if (abs >= 100) return String(Math.round(v));
+  return String(Math.round(v * 10) / 10);
+}
+
 // Least-squares fit, returned as a slope and intercept over point indices.
 function linearFit(xs, ys) {
   const n = xs.length;
@@ -10541,7 +12120,7 @@ function senseCheck(points, values) {
   return flags;
 }
 
-function SimpleLineChart({ data, dataKey = "weight", height = 200, color, trend = false, flagOutliers = false, goal = null }) {
+function SimpleLineChart({ data, dataKey = "weight", height = 200, color, trend = false, flagOutliers = false, goal = null, labelFor = null }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(0);
   const [active, setActive] = useState(null);
@@ -10602,8 +12181,13 @@ function SimpleLineChart({ data, dataKey = "weight", height = 200, color, trend 
   const clampY = (v) => Math.max(CHART_PAD.top, Math.min(height - CHART_PAD.bottom, y(v)));
 
   const ticks = [0, 1, 2, 3].map((i) => min + ((max - min) * i) / 3);
-  // Thin the date labels so they never collide on a narrow phone.
-  const labelStride = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(plotW / 46))));
+  // Thin the date labels so they never collide on a narrow phone. A caller
+  // plotting weeks or months can hand over shorter labels, which fit more
+  // of them in — a full ISO date is ten characters and only three or four
+  // will ever fit across a phone.
+  const xLabel = (d) => (labelFor ? labelFor(d) : d.date);
+  const labelWidth = labelFor ? 26 : 46;
+  const labelStride = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(plotW / labelWidth))));
   const path = points.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${clampY(values[i]).toFixed(1)}`).join(" ");
 
   function pick(e) {
@@ -10633,7 +12217,7 @@ function SimpleLineChart({ data, dataKey = "weight", height = 200, color, trend 
           <g key={i}>
             <line x1={CHART_PAD.left} x2={w - CHART_PAD.right} y1={y(t)} y2={y(t)} stroke={COLORS.line} strokeDasharray="3 3" />
             <text x={CHART_PAD.left - 6} y={y(t) + 3.5} textAnchor="end" fill={COLORS.textDim} fontSize={10}>
-              {Math.round(t * 10) / 10}
+              {axisTick(t)}
             </text>
           </g>
         ))}
@@ -10641,7 +12225,7 @@ function SimpleLineChart({ data, dataKey = "weight", height = 200, color, trend 
         {points.map((d, i) =>
           // The last label is always drawn, so drop any strided label that
           // would sit on top of it.
-          (i % labelStride === 0 && x(points.length - 1) - x(i) > 48) || i === points.length - 1 ? (
+          (i % labelStride === 0 && x(points.length - 1) - x(i) > labelWidth + 2) || i === points.length - 1 ? (
             <text
               key={i}
               x={x(i)}
@@ -10652,7 +12236,7 @@ function SimpleLineChart({ data, dataKey = "weight", height = 200, color, trend 
               fill={COLORS.textDim}
               fontSize={10}
             >
-              {d.date}
+              {xLabel(d)}
             </text>
           ) : null
         )}
@@ -11510,16 +13094,434 @@ function WeightTrackingPanel() {
 
       {chartData.length < 2 ? (
         <div style={{ color: COLORS.textDim, fontSize: 12.5, textAlign: "center", padding: "14px 0" }}>
-          Log your weight on at least two days to see a trend graph.
+          Log your weight on at least two days to see a graph.
         </div>
       ) : (
-        <SimpleLineChart data={chartData} dataKey="weight" height={190} trend goal={goal} />
+        <SimpleLineChart data={chartData} dataKey="weight" height={190} goal={goal} />
       )}
     </div>
   );
 }
 
-function StreakScreen({ onBack }) {
+/* ---------------------------------------------------------------
+   STATS FOR NERDS — the screen
+
+   Twelve panels off the foot of Consistency. Everything here is drawn
+   rather than listed wherever a shape says it faster than a number
+   would: which muscles get the work is a body, when you train is a
+   clock, and how your reps fall is a histogram.
+
+   Every panel hides itself when it has nothing honest to say, so a
+   first-week user sees three cards rather than nine empty ones.
+--------------------------------------------------------------- */
+
+// Roughly what a pile of that weight would be. Not a conversion anyone
+// needs — it is there because 437,000 is a number the eye slides off and
+// "36 London buses" is not.
+const TONNAGE_SCALE = [
+  { kg: 150000, one: "blue whale", many: "blue whales" },
+  { kg: 12000, one: "London bus", many: "London buses" },
+  { kg: 1400, one: "small car", many: "small cars" },
+  { kg: 100, one: "bag of cement", many: "bags of cement" },
+];
+
+function tonnageComparison(kg) {
+  // Prefer a count you can picture. Three blue whales and thirty-six buses
+  // are the same weight, but only one of them lands, so a count between 5
+  // and 200 wins and the rest are only a fallback.
+  const options = TONNAGE_SCALE.map((unit) => ({ unit, n: kg / unit.kg })).filter((o) => o.n >= 1.5);
+  const nice = options.find((o) => o.n >= 5 && o.n <= 200) || options[options.length - 1];
+  if (!nice) return null;
+  const count = Math.round(nice.n);
+  return `about ${count} ${count === 1 ? nice.unit.one : nice.unit.many}`;
+}
+
+const MONTH_ABBREV = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function NerdCard({ title, icon, note, children }) {
+  return (
+    <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: 15, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 10.5, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: note ? 4 : 12 }}>
+        {icon} {title}
+      </div>
+      {note && <div style={{ color: COLORS.textDim, fontSize: 11, lineHeight: 1.4, marginBottom: 12 }}>{note}</div>}
+      {children}
+    </div>
+  );
+}
+
+// A labelled row with a bar behind the number. Used wherever the ranking
+// matters as much as the values.
+function NerdBars({ rows, colour, unit }) {
+  const max = rows.reduce((m, r) => Math.max(m, Math.abs(r.value)), 0) || 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      {rows.map((r) => (
+        <div key={r.label}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 3 }}>
+            <span style={{ color: COLORS.text, fontSize: 12.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+            <span style={{ color: r.colour || colour || COLORS.accent, fontSize: 11.5, fontFamily: "'JetBrains Mono', monospace", flexShrink: 0 }}>
+              {r.display !== undefined ? r.display : `${r.value}${unit || ""}`}
+            </span>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: COLORS.surfaceRaised, overflow: "hidden" }}>
+            <div style={{ width: `${(Math.abs(r.value) / max) * 100}%`, height: "100%", background: r.colour || colour || COLORS.accent, borderRadius: 3 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Vertical bars for anything read along an axis of time — hours of the
+// day, days of the week.
+function NerdColumns({ values, labels, colour, highlight }) {
+  const max = Math.max(...values, 1);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 84 }}>
+      {values.map((v, i) => {
+        const on = v > 0;
+        const isPeak = highlight && v === max && v > 0;
+        return (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0 }}>
+            <div
+              title={`${labels[i]}: ${v}`}
+              style={{
+                width: "100%",
+                height: Math.max(on ? 3 : 1, (v / max) * 62),
+                borderRadius: 2,
+                background: on ? (isPeak ? colour || COLORS.accent : hexToRgba(colour || COLORS.accent, 0.45)) : COLORS.surfaceRaised,
+              }}
+            />
+            <span style={{ color: isPeak ? COLORS.text : COLORS.textDim, fontSize: 8.5, fontFamily: "'JetBrains Mono', monospace", whiteSpace: "nowrap" }}>
+              {labels[i]}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function NerdDonut({ rows, centreValue, centreLabel }) {
+  const total = rows.reduce((n, r) => n + r.value, 0);
+  if (!total) return null;
+  const size = 118, stroke = 19;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  let cumulative = 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={COLORS.surfaceRaised} strokeWidth={stroke} />
+        <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+          {rows.filter((row) => row.value > 0).map((row) => {
+            const dash = (row.value / total) * c;
+            const el = (
+              <circle key={row.label} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={row.colour}
+                strokeWidth={stroke} strokeDasharray={`${dash} ${c - dash}`} strokeDashoffset={-cumulative} />
+            );
+            cumulative += dash;
+            return el;
+          })}
+        </g>
+        <text x={size / 2} y={size / 2 - 2} textAnchor="middle" fill={COLORS.text} fontSize={19} fontFamily="'Oswald', sans-serif">{centreValue}</text>
+        <text x={size / 2} y={size / 2 + 14} textAnchor="middle" fill={COLORS.textDim} fontSize={9} fontFamily="'Oswald', sans-serif" letterSpacing={1}>{centreLabel}</text>
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, flex: 1, minWidth: 0 }}>
+        {rows.map((row) => (
+          <div key={row.label} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: row.colour, flexShrink: 0 }} />
+            <span style={{ color: COLORS.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>
+            <span style={{ color: COLORS.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              {total ? Math.round((row.value / total) * 100) : 0}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* The body, coloured by how much of your work each muscle takes.
+
+   A single hue at varying strength rather than red-to-green: this is one
+   quantity, not a good-to-bad judgement, and the readiness map above
+   already owns the traffic lights. Untouched muscles stay at the base
+   tint so "never trained" reads as absence rather than as a low score. */
+function MuscleHeatBody({ muscleSets }) {
+  const max = Math.max(1, ...Object.values(muscleSets));
+  const fillFor = (muscle) => {
+    const n = muscleSets[muscle] || 0;
+    if (!n) return COLORS.surfaceRaised;
+    // Square root, because the top muscle is often several times the
+    // median and a linear ramp leaves everything below it looking equally
+    // untouched.
+    const share = Math.sqrt(n / max);
+    return hexToRgba(COLORS.accent, 0.16 + share * 0.84);
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+        <BodySide label="Front" view="front" stages={{}} selected={null} onSelect={() => {}} fillFor={fillFor} compact />
+        <BodySide label="Rear" view="back" stages={{}} selected={null} onSelect={() => {}} fillFor={fillFor} compact />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, justifyContent: "center" }}>
+        <span style={{ color: COLORS.textDim, fontSize: 10, fontFamily: "'JetBrains Mono', monospace" }}>less</span>
+        <span style={{ flex: 1, maxWidth: 130, height: 7, borderRadius: 4, background: `linear-gradient(to right, ${hexToRgba(COLORS.accent, 0.16)}, ${COLORS.accent})` }} />
+        <span style={{ color: COLORS.textDim, fontSize: 10, fontFamily: "'JetBrains Mono', monospace" }}>more</span>
+      </div>
+    </div>
+  );
+}
+
+function NerdStatsScreen({ onBack }) {
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const hist = (await safeGet("workout-history")) || [];
+      const acts = (await safeGet("activity-history")) || [];
+      if (!cancelled) setStats(computeNerdStats(hist, acts));
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!stats) {
+    return (
+      <div>
+        <TopBar title="Stats for Nerds" onBack={onBack} />
+        <div style={{ color: COLORS.textDim, textAlign: "center", padding: 30 }}>Crunching…</div>
+      </div>
+    );
+  }
+  if (!stats.sessions && !stats.cardio.count) {
+    return (
+      <div>
+        <TopBar title="Stats for Nerds" onBack={onBack} />
+        <div style={{ padding: "0 20px", color: COLORS.textDim, fontSize: 13, lineHeight: 1.5 }}>
+          Nothing logged yet. Train a few times and this fills up.
+        </div>
+      </div>
+    );
+  }
+
+  const n = (v) => Math.round(v).toLocaleString();
+  const tiles = [
+    { label: "Sessions", value: n(stats.sessions) },
+    { label: "Sets", value: n(stats.sets) },
+    { label: "Reps", value: n(stats.reps) },
+    { label: "Tonnes", value: n(stats.tonnage / 1000) },
+  ];
+  const compare = tonnageComparison(stats.tonnage);
+  const topMuscles = Object.entries(stats.muscleSets).sort((a, b) => b[1] - a[1]);
+  const topExercises = Object.entries(stats.exerciseSets).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const effortRows = [
+    { label: "To failure", value: stats.effort.byRir[0], colour: STAGE_COLORS.red },
+    { label: "1 left", value: stats.effort.byRir[1], colour: STAGE_COLORS.amber },
+    { label: "2 left", value: stats.effort.byRir[2], colour: COLORS.accent },
+    { label: "3+ left", value: stats.effort.byRir[3], colour: STAGE_COLORS.green },
+  ];
+  const pplRows = [
+    { label: "Push", value: stats.ppl.Push, colour: STAGE_COLORS.red },
+    { label: "Pull", value: stats.ppl.Pull, colour: COLORS.accent },
+    { label: "Legs", value: stats.ppl.Legs, colour: STAGE_COLORS.green },
+  ];
+  const gainers = stats.movers.filter((m) => m.pct > 0).slice(0, 4);
+  const fallers = stats.movers.filter((m) => m.pct < 0).slice(-3).reverse();
+  const cardioRows = Object.entries(stats.cardio.byType)
+    .sort((a, b) => b[1].seconds - a[1].seconds)
+    .map(([label, v]) => ({
+      label,
+      value: Math.round(v.seconds / 60),
+      display: `${formatDuration(v.seconds)}${v.distance ? ` · ${Math.round(v.distance * 10) / 10}${v.unit || ""}` : ""}`,
+    }));
+  const failurePct = stats.effort.total ? Math.round((stats.effort.byRir[0] / stats.effort.total) * 100) : 0;
+  const peakHour = stats.byHour.indexOf(Math.max(...stats.byHour));
+  const quietDay = WEEKDAY_LABELS[stats.byWeekday.indexOf(Math.min(...stats.byWeekday))];
+  const busyDay = WEEKDAY_LABELS[stats.byWeekday.indexOf(Math.max(...stats.byWeekday))];
+  const weeklyData = stats.weekly.slice(-26).map((w) => ({ date: w.week, tonnage: w.tonnage }));
+
+  const factRow = { display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 0", borderBottom: `1px solid ${COLORS.line}`, fontSize: 12.5 };
+  const factValue = { color: COLORS.text, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, flexShrink: 0 };
+
+  return (
+    <div style={{ paddingBottom: 40 }} data-tour="nerd-stats">
+      <TopBar title="Stats for Nerds" onBack={onBack} />
+      <div style={{ padding: "0 20px 16px", color: COLORS.textDim, fontSize: 13, lineHeight: 1.5 }}>
+        {stats.firstDate ? `Everything logged since ${stats.firstDate}.` : "Everything you have logged."}
+      </div>
+
+      <div style={{ padding: "0 20px" }}>
+        {/* ---- the four big ones ---- */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+          {tiles.map((t) => (
+            <div key={t.label} style={{ width: "calc(50% - 5px)", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: 14 }}>
+              <div style={{ color: COLORS.accent, fontFamily: "'Oswald', sans-serif", fontSize: 24, lineHeight: 1 }}>{t.value}</div>
+              <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 0.5, textTransform: "uppercase", marginTop: 6 }}>{t.label}</div>
+            </div>
+          ))}
+        </div>
+        {compare && (
+          <div style={{ color: COLORS.textDim, fontSize: 11.5, textAlign: "center", marginBottom: 16, lineHeight: 1.4 }}>
+            {n(stats.tonnage)}kg of external load — {compare}. Bodyweight and assisted work carry no bar, so they add nothing here.
+          </div>
+        )}
+
+        {/* ---- where the work goes ---- */}
+        {topMuscles.length > 0 && (
+          <NerdCard
+            title="Where the work goes"
+            icon={<User size={13} color={COLORS.accent} />}
+            note={`${topMuscles[0][0]} takes the most of it — ${topMuscles[0][1]} sets, ${Math.round((topMuscles[0][1] / stats.sets) * 100)}% of everything you have logged.`}
+          >
+            <MuscleHeatBody muscleSets={stats.muscleSets} />
+            <div style={{ marginTop: 14 }}>
+              <NerdBars rows={topMuscles.slice(0, 5).map(([label, value]) => ({ label, value }))} unit=" sets" />
+            </div>
+          </NerdCard>
+        )}
+
+        {/* ---- effort ---- */}
+        {stats.effort.total > 0 && (
+          <NerdCard
+            title="How hard you push"
+            icon={<Sparkles size={13} color={COLORS.accent} />}
+            note={`You go to failure on ${stats.effort.byRir[0]} of ${stats.effort.total} sets where you recorded the effort — ${failurePct}%.${stats.effort.hardestMuscle ? ` ${stats.effort.hardestMuscle[0]} is what you empty the tank on most.` : ""}`}
+          >
+            <NerdDonut rows={effortRows} centreValue={`${failurePct}%`} centreLabel="TO FAILURE" />
+          </NerdCard>
+        )}
+
+        {/* ---- rep ranges ---- */}
+        {stats.reps > 0 && (
+          <NerdCard title="Rep ranges" icon={<Dumbbell size={13} color={COLORS.accent} />}>
+            <NerdBars
+              rows={REP_BANDS.map((band) => ({
+                label: `${band.label}  ·  ${band.note}`,
+                value: stats.repBands[band.key],
+                display: `${stats.repBands[band.key]}`,
+              }))}
+            />
+          </NerdCard>
+        )}
+
+        {/* ---- balance ---- */}
+        {(stats.ppl.Push + stats.ppl.Pull + stats.ppl.Legs) > 0 && (
+          <NerdCard title="Push · Pull · Legs" icon={<PieChart size={13} color={COLORS.accent} />}>
+            <NerdDonut rows={pplRows} centreValue={n(stats.sets)} centreLabel="SETS" />
+          </NerdCard>
+        )}
+
+        {/* ---- most-done exercises ---- */}
+        {topExercises.length > 0 && (
+          <NerdCard
+            title="Most-done exercises"
+            icon={<Trophy size={13} color={COLORS.accent} />}
+            note={`${stats.distinctExercises} different exercises logged.`}
+          >
+            <NerdBars rows={topExercises.map(([label, value]) => ({ label, value }))} unit=" sets" />
+          </NerdCard>
+        )}
+
+        {/* ---- movers ---- */}
+        {gainers.length > 0 && (
+          <NerdCard
+            title="Biggest movers"
+            icon={<TrendingUp size={13} color={COLORS.accent} />}
+            note={`Estimated 1RM, first three sessions against the last three. Lifts with at least ${MOVER_MIN_SESSIONS} sessions behind them.`}
+          >
+            <NerdBars
+              rows={gainers.map((m) => ({ label: m.name, value: m.pct, display: `+${Math.round(m.pct)}%`, colour: STAGE_COLORS.green }))}
+            />
+            {fallers.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ color: COLORS.textDim, fontSize: 10.5, fontFamily: "'Oswald', sans-serif", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 7 }}>
+                  Going backwards
+                </div>
+                <NerdBars
+                  rows={fallers.map((m) => ({ label: m.name, value: m.pct, display: `${Math.round(m.pct)}%`, colour: STAGE_COLORS.red }))}
+                />
+              </div>
+            )}
+          </NerdCard>
+        )}
+
+        {/* ---- clock ---- */}
+        {stats.timedSessions >= 3 && (
+          <NerdCard
+            title="When you train"
+            icon={<Clock size={13} color={COLORS.accent} />}
+            note={`Peak hour is ${peakHour}:00. From the ${stats.timedSessions} session${stats.timedSessions === 1 ? "" : "s"} the app timed itself — imported ones carry no real clock.`}
+          >
+            <NerdColumns
+              values={stats.byHour}
+              labels={stats.byHour.map((_, i) => (i % 6 === 0 ? `${i}` : ""))}
+              colour={COLORS.accent}
+              highlight
+            />
+          </NerdCard>
+        )}
+
+        {/* ---- weekdays ---- */}
+        <NerdCard
+          title="Which days"
+          icon={<HistoryIcon size={13} color={COLORS.accent} />}
+          note={`${busyDay} is your busiest, ${quietDay} your quietest.`}
+        >
+          <NerdColumns values={stats.byWeekday} labels={WEEKDAY_LABELS} colour={COLORS.accent} highlight />
+        </NerdCard>
+
+        {/* ---- weekly tonnage ---- */}
+        {weeklyData.length >= 4 && (
+          <NerdCard title="Weight moved per week" icon={<TrendingUp size={13} color={COLORS.accent} />} note="Last six months, kilograms.">
+            <SimpleLineChart
+              data={weeklyData}
+              dataKey="tonnage"
+              height={150}
+              trend
+              labelFor={(d) => MONTH_ABBREV[parseInt(String(d.date).slice(5, 7), 10) - 1] || ""}
+            />
+          </NerdCard>
+        )}
+
+        {/* ---- the record book ---- */}
+        <NerdCard title="Record book" icon={<Bookmark size={13} color={COLORS.accent} />}>
+          <div>
+            {[
+              ["Days trained", n(stats.daysTrained)],
+              ["Longest streak", `${stats.longestStreak} day${stats.longestStreak === 1 ? "" : "s"}`],
+              ["Longest time off", `${stats.longestGap} day${stats.longestGap === 1 ? "" : "s"}`],
+              stats.busiestMonth ? ["Busiest month", `${stats.busiestMonth.month} · ${stats.busiestMonth.count} sessions`] : null,
+              ["Sets per session", stats.setsPerSession.toFixed(1)],
+              stats.biggestSession ? ["Biggest session", `${stats.biggestSession.sets} sets · ${stats.biggestSession.date}`] : null,
+            ].filter(Boolean).map(([label, value], i, arr) => (
+              <div key={label} style={{ ...factRow, borderBottom: i === arr.length - 1 ? "none" : factRow.borderBottom }}>
+                <span style={{ color: COLORS.textDim }}>{label}</span>
+                <span style={factValue}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </NerdCard>
+
+        {/* ---- cardio ---- */}
+        {cardioRows.length > 0 && (
+          <NerdCard
+            title="Cardio"
+            icon={<Footprints size={13} color={COLORS.accent} />}
+            note={`${stats.cardio.count} session${stats.cardio.count === 1 ? "" : "s"}, ${formatDuration(stats.cardio.seconds)} on your feet and wheels.`}
+          >
+            <NerdBars rows={cardioRows} />
+          </NerdCard>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StreakScreen({ onBack, onViewNerdStats }) {
   const [trainedDates, setTrainedDates] = useState(new Set());
   const [totalWorkouts, setTotalWorkouts] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -11569,13 +13571,13 @@ function StreakScreen({ onBack }) {
     <div>
       <TopBar title="Consistency" onBack={onBack} />
       <div style={{ padding: "0 20px 16px", color: COLORS.textDim, fontSize: 13 }}>
-        Every day you logged a workout, a square per day.
+        Every day you trained, a square per day — lifting and cardio both count.
       </div>
       <div style={{ padding: "0 20px 20px", display: "flex", gap: 10 }}>
         {[
           { label: "Current Streak", value: streak },
           { label: "This Week", value: thisWeekCount },
-          { label: "Total Workouts", value: totalWorkouts },
+          { label: "Days Trained", value: totalWorkouts },
         ].map((s) => (
           <div key={s.label} style={{ flex: 1, background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
             <div style={{ color: COLORS.accent, fontFamily: "'Oswald', sans-serif", fontSize: 22 }}>{loading ? "–" : s.value}</div>
@@ -11609,12 +13611,33 @@ function StreakScreen({ onBack }) {
         </button>
       </div>
 
-      <div style={{ padding: "0 20px 40px" }}>
+      <div style={{ padding: "0 20px 24px" }}>
         {loading ? (
           <div style={{ color: COLORS.textDim, textAlign: "center", padding: 30 }}>Loading…</div>
         ) : (
           <YearHeatmap year={year} trainedDates={trainedDates} today={today} />
         )}
+      </div>
+
+      {/* The calendar answers "did I train"; everything behind this button
+          answers "what did I actually do". It lives at the foot of the
+          screen rather than on Home because none of it is needed mid-set. */}
+      <div style={{ padding: "0 20px 40px" }}>
+        <button
+          data-tour="nerd-stats-btn"
+          onClick={onViewNerdStats}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: hexToRgba(COLORS.accent, 0.1), border: `1px solid ${COLORS.accent}`, borderRadius: 12, padding: "13px 14px", textAlign: "left" }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 7, color: COLORS.accent, fontFamily: "'Oswald', sans-serif", fontSize: 14, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
+              <PieChart size={14} /> Stats for Nerds
+            </span>
+            <span style={{ display: "block", color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.4 }}>
+              Tonnage, rep ranges, which muscles get the work, how often you go to failure, and when you actually train.
+            </span>
+          </span>
+          <ChevronRight size={16} color={COLORS.accent} style={{ flexShrink: 0 }} />
+        </button>
       </div>
     </div>
   );
@@ -12961,7 +14984,16 @@ One entry per movement. A bench press is a bench press whether it is loaded with
             Shows your last logged top set for an exercise, right there while you log the new one.
           </FeatureItem>
           <FeatureItem name="Cardio & Activity">
-            A panel at the foot of Home for runs, walks, rides and anything else, kept out of your lifting stats but wired into the readiness map above it. Log a time in minutes and seconds, a distance if you want one, and an effort from RPE 1 to 10; pace is worked out for you — minutes per kilometre for a run or walk, km/h for a ride. A run tires quads, calves and hamstrings directly and glutes, shins and core indirectly; a ride is quad-led with the rest indirect; a walk is indirect throughout, because treating a stroll as direct leg work would paint the map red for anyone who commutes on foot. RPE 9 or 10 counts as hard, the same threshold a set at 0-1 RIR meets. "Other" is timed and logged but leaves the map alone, since the app has no way to know what it worked.
+            A panel at the foot of Home, kept out of your lifting stats but wired into the readiness map above it. Fifteen options grouped indoor and outdoor: run, walk, hike, cycle and swim outside; treadmill, incline walk, stationary bike, spin, rowing machine, elliptical, stair climber, assault bike, jump rope and Other inside. Pick a date and time, a duration, a distance where the activity has one, and an effort from RPE 1 to 10. Pace is worked out in the unit the sport is read in — min/km on foot, km/h on a bike, a /500m split on the rower, /100m in the pool. Each activity knows what it works: a run tires quads, calves and hamstrings directly and glutes, shins and core indirectly; a rower is quads and back with the erectors holding it together; a swim is back and front delts; a walk is indirect throughout, because treating a stroll as direct leg work would paint the map red for anyone who commutes on foot. RPE 9 or 10 counts as hard, the same threshold a set at 0-1 RIR meets. "Other" is timed and logged but leaves the map alone, since the app has no way to know what it worked. Every activity counts towards your day streak and consistency calendar.
+          </FeatureItem>
+          <FeatureItem name="Stats for Nerds">
+            At the foot of Consistency. Twelve panels: lifetime sessions, sets, reps and tonnage, with a comparison to make the tonnage mean something; a body diagram shaded by how much of your work each muscle takes; a donut of how often you go to failure, counted against the sets where you actually recorded an effort and never against the ones you did not; reps by range from strength to endurance; a push/pull/legs balance; your most-done exercises; biggest movers by estimated 1RM, in both directions, for lifts with at least six sessions behind them; the hour of day you train, built only from sessions the app timed itself so imported ones cannot invent a pattern; which weekday is your busiest; weight moved per week over six months; a record book of longest streak, longest lay-off, busiest month and biggest session; and cardio time and distance by sport. Tonnage counts external load, so bodyweight and assisted work add nothing to it. Any panel without enough behind it stays hidden.
+          </FeatureItem>
+          <FeatureItem name="Training Load">
+            Drag the marker along the scale to ask what it would take to be somewhere else on it. Downwards it answers in rest: the hours, and the 24-hour time and date you would get there. That number is exact rather than estimated — with no training at all a day multiplies the 7-day average by 0.75 and the 28-day by 0.931, so the ratio falls by the same factor every day and the time to any lower value comes straight out of that. Upwards it cannot answer in rest, because nothing but training raises the ratio, so it prices a session instead: the minutes at RPE 8 that would land you there today. The readout only exists while you are dragging, a faint mark stays where you actually are for comparison, and letting go snaps it back — it is a question, not a setting.
+          </FeatureItem>
+          <FeatureItem name="Training Load">
+            A scale under the readiness map for the question the map cannot answer: not "can I train chest" but "should I train at all". The map remembers only each muscle's most recent session, so a training block never accumulates in it. This is the acute:chronic workload ratio, the measure the injury literature is built on. Every session gets a load — Foster's session-RPE, how hard it felt multiplied by how long it lasted, which puts a set of squats and a 10k in the same units. Lifting sessions take their RPE from your logged RIR and their minutes from the clock, or from their sets at your configured rest lengths for sessions logged before the app timed them. The last 7 days are averaged against the last 28, both exponentially weighted the way Williams et al. showed detects injury risk better than plain rolling windows. Gabbett's zones: under 0.8 is detraining, 0.8–1.3 is the sweet spot where injury rates are lowest, 1.3–1.5 is ramping up faster than you are adapting, and over 1.5 carries two to four times the injury rate. The bar is coloured by zone with a marker for where you sit. Because it divides by your own 28-day average it judges you against your own conditioning, not an absolute anyone has to live up to. It needs a few weeks of history before it will show a number.
           </FeatureItem>
           <FeatureItem name="Muscle Readiness Map">
             Toggles the body-diagram recovery map on the Home screen.
@@ -14653,7 +16685,9 @@ export default function App() {
 
       {screen === "volume" && <VolumeScreen onBack={() => setScreen("home")} />}
 
-      {screen === "streak" && <StreakScreen onBack={() => setScreen("home")} />}
+      {screen === "streak" && <StreakScreen onBack={() => setScreen("home")} onViewNerdStats={() => setScreen("nerdStats")} />}
+
+      {screen === "nerdStats" && <NerdStatsScreen onBack={() => setScreen("streak")} />}
 
       {screen === "onerm" && (
         <OneRMScreen
