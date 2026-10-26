@@ -1212,12 +1212,23 @@ function quoteOfTheDay(date) {
 
 const RELEASE_NOTES = [
   {
+    version: "1.29.0",
+    released: "2026-10-26",
+    headline: "The Strava strength file is gone; sharing works the way it did.",
+    items: [
+      {
+        title: "Back to one button",
+        body: "The strength file added in 1.28.0 is removed. Sending one meant Strava's web uploader in a browser rather than the Strava app, and what arrived did not read as a proper strength log \u2014 a worse route to a worse result. Share to Strava is one button again: it builds the session into text, hands it to the share sheet, and the Strava app opens with the post ready for it. Nothing else about sharing changed, and nothing you have logged is affected.",
+      },
+    ],
+  },
+  {
     version: "1.28.0",
     released: "2026-10-26",
     headline: "Your lifts go to Strava as lifts, not as a paragraph about lifts.",
     items: [
       {
-        title: "A Strava strength file",
+        title: "A Strava strength file (removed in 1.29.0)",
         body: "Strava rebuilt strength training in May 2026 \u2014 a workout log that holds sets, reps and weight, and a muscle map drawn from the exercises in the activity \u2014 and on the same day started reading set data out of uploaded FIT files. Iron Log now writes one. Tap Strava strength file on a finished workout or any session in History, upload it, and the activity arrives as weight training with every set, rep and weight on it rather than as text in the description.",
       },
       {
@@ -2833,14 +2844,11 @@ async function writeBackupFile(filename, text) {
    the workout into text, hand it to the phone's share sheet, and open Strava.
    You paste it into an activity's description.
 
-   That was once the whole story, on the grounds that Strava had nowhere to
-   put sets and reps anyway. It does now: the strength rebuild of May 2026
-   added a workout log that holds them, and Strava reads them out of the set
-   messages in an uploaded FIT file. The section below writes that file, and
-   it is the better route for anyone who wants the lifts themselves on the
-   activity rather than a paragraph about them. This text remains, because a
-   description is still the only thing a reader of the activity sees without
-   opening it.
+   Strava's strength rebuild of May 2026 gave it somewhere structured to put
+   sets and reps, and a way to read them out of an uploaded file. That was
+   tried and dropped — see the note below this section. What survives is this:
+   the text, the share sheet, and the Strava app opening with the post ready
+   to take it.
 --------------------------------------------------------------- */
 
 const STRAVA_NEW_ACTIVITY_URL = "https://www.strava.com/activities/new";
@@ -2932,590 +2940,27 @@ function openStrava() {
   window.open(STRAVA_NEW_ACTIVITY_URL, "_blank", "noopener");
 }
 
-/* ---------------------------------------------------------------
-   A STRAVA STRENGTH FILE
+/* WHY THERE IS NO FILE EXPORT HERE
 
-   Strava rebuilt its strength experience in May 2026: a workout log
-   that holds sets, reps and weight, and a muscle map drawn from the
-   exercises an activity contains. Their changelog added, on the same
-   day, "set message support for FIT file uploads" — Strava now reads
-   exercise type, repetitions, weight, duration and start time out of
-   the set messages in an uploaded FIT file.
+   There was, briefly, in 1.28.0. Strava's strength rebuild of May 2026 added
+   set-message support to FIT uploads, so the app wrote a real FIT activity
+   file: twelve hundred lines of encoder, every set mapped to FIT's own
+   exercise taxonomy, and Garmin's SDK decoding the output back to the sets it
+   was built from. It worked as a file.
 
-   That is the whole reason this exists. Writing to the structured log
-   through the API is for their partner integrations, and the API's
-   token exchange still wants a client secret this app has nowhere to
-   keep (see the share-text section above). A FIT file needs neither:
-   the file carries the structure, and the upload is the lifter's own.
+   It did not work as a feature. Uploading one meant Strava's web uploader in
+   a browser rather than the Strava app, and what arrived at the other end did
+   not read as a proper strength log. Against that, handing the text to the
+   share sheet opens the Strava app with the post already filled, which is the
+   flow people actually want. A worse route to a worse result is not worth the
+   code, so it came out again in 1.29.0.
 
-   So Iron Log writes a real FIT activity file. Not a summary of one —
-   a file whose set messages Garmin's own decoder reads back with the
-   right reps and weights, which is the bar this had to clear before
-   it shipped.
-
-   WHAT IS REAL IN THE FILE AND WHAT IS RECONSTRUCTED
-
-   Real: every rep, every weight, the exercise each set belongs to,
-   the session's start and finish, and its total duration.
-
-   Reconstructed: where each set sits inside the session. Iron Log
-   stamps a session, not a stopwatch per set, and a FIT set message
-   wants a start time and a duration. Sets are therefore laid out in
-   the order they were logged, each given an equal share of the real
-   session length. The sequence and the total are true; the minute a
-   particular set started is an even division, not a measurement.
-
-   Bodyweight sets carry no weight field at all rather than a zero.
-   Assistance is stored as a negative number in this app, which is not
-   a weight lifted, so those sets go across as reps alone too.
+   If it is ever worth revisiting, the two things to establish first are what
+   an uploaded file actually produces on Strava's side, and whether the Strava
+   Android app will accept a .fit from the share sheet — the browser detour
+   was half of what made it unpleasant. The encoder is in the history at
+   v1.28.0 and would come back whole.
 --------------------------------------------------------------- */
-
-// 1989-12-31T00:00:00Z, which is where FIT counts from.
-const FIT_EPOCH_SECONDS = 631065600;
-
-// The CRC the spec defines, checked byte-for-byte against the one in
-// Garmin's own SDK before this went anywhere near the app.
-const FIT_CRC_TABLE = [0x0000, 0xCC01, 0xD801, 0x1400, 0xF001, 0x3C00, 0x2800, 0xE401,
-                       0xA001, 0x6C00, 0x7800, 0xB401, 0x5000, 0x9C01, 0x8801, 0x4400];
-
-function fitCrc(bytes) {
-  let crc = 0;
-  for (let i = 0; i < bytes.length; i++) {
-    const b = bytes[i];
-    let tmp = FIT_CRC_TABLE[crc & 0xF];
-    crc = (crc >> 4) & 0x0FFF;
-    crc = crc ^ tmp ^ FIT_CRC_TABLE[b & 0xF];
-    tmp = FIT_CRC_TABLE[crc & 0xF];
-    crc = (crc >> 4) & 0x0FFF;
-    crc = crc ^ tmp ^ FIT_CRC_TABLE[(b >> 4) & 0xF];
-  }
-  return crc & 0xFFFF;
-}
-
-// Base types by the numbers the spec gives them, each with the value that
-// means "not set" — a field left out is written as its invalid value rather
-// than as zero, which would read as a real measurement of nothing.
-const FIT_TYPES = {
-  enum: { id: 0x00, size: 1, invalid: 0xFF },
-  uint16: { id: 0x84, size: 2, invalid: 0xFFFF },
-  uint32: { id: 0x86, size: 4, invalid: 0xFFFFFFFF },
-  uint32z: { id: 0x8C, size: 4, invalid: 0 },
-};
-
-// Message and field numbers from the FIT profile. Named here so the writer
-// below reads as the file it produces.
-const FIT_MESG = { fileId: 0, session: 18, lap: 19, activity: 34, set: 225 };
-const FIT_FIELDS = {
-  fileId: [
-    { num: 0, type: FIT_TYPES.enum },     // type: activity
-    { num: 1, type: FIT_TYPES.uint16 },   // manufacturer
-    { num: 2, type: FIT_TYPES.uint16 },   // product
-    { num: 3, type: FIT_TYPES.uint32z },  // serial number
-    { num: 4, type: FIT_TYPES.uint32 },   // time created
-  ],
-  set: [
-    { num: 254, type: FIT_TYPES.uint32 }, // timestamp (end of the set)
-    { num: 0, type: FIT_TYPES.uint32 },   // duration, seconds x1000
-    { num: 3, type: FIT_TYPES.uint16 },   // repetitions
-    { num: 4, type: FIT_TYPES.uint16 },   // weight, kg x16
-    { num: 5, type: FIT_TYPES.enum },     // set type
-    { num: 6, type: FIT_TYPES.uint32 },   // start time
-    { num: 7, type: FIT_TYPES.uint16 },   // exercise category
-    { num: 8, type: FIT_TYPES.uint16 },   // exercise name within that category
-    { num: 9, type: FIT_TYPES.uint16 },   // weight display unit
-    { num: 10, type: FIT_TYPES.uint16 },  // message index
-  ],
-  lap: [
-    { num: 254, type: FIT_TYPES.uint16 },
-    { num: 253, type: FIT_TYPES.uint32 },
-    { num: 2, type: FIT_TYPES.uint32 },
-    { num: 7, type: FIT_TYPES.uint32 },
-    { num: 8, type: FIT_TYPES.uint32 },
-    { num: 0, type: FIT_TYPES.enum },
-    { num: 1, type: FIT_TYPES.enum },
-    { num: 25, type: FIT_TYPES.enum },
-  ],
-  session: [
-    { num: 254, type: FIT_TYPES.uint16 },
-    { num: 253, type: FIT_TYPES.uint32 },
-    { num: 2, type: FIT_TYPES.uint32 },
-    { num: 7, type: FIT_TYPES.uint32 },
-    { num: 8, type: FIT_TYPES.uint32 },
-    { num: 5, type: FIT_TYPES.enum },     // sport: training
-    { num: 6, type: FIT_TYPES.enum },     // sub sport: strength training
-    { num: 0, type: FIT_TYPES.enum },
-    { num: 1, type: FIT_TYPES.enum },
-    { num: 25, type: FIT_TYPES.uint16 },
-    { num: 26, type: FIT_TYPES.uint16 },
-    { num: 28, type: FIT_TYPES.enum },
-  ],
-  activity: [
-    { num: 253, type: FIT_TYPES.uint32 },
-    { num: 0, type: FIT_TYPES.uint32 },
-    { num: 1, type: FIT_TYPES.uint16 },
-    { num: 2, type: FIT_TYPES.enum },
-    { num: 3, type: FIT_TYPES.enum },
-    { num: 4, type: FIT_TYPES.enum },
-  ],
-};
-const FIT_FILE_ACTIVITY = 4;
-const FIT_MANUFACTURER_DEVELOPMENT = 255;
-const FIT_SPORT_TRAINING = 10;
-const FIT_SUBSPORT_STRENGTH = 20;
-const FIT_SET_ACTIVE = 1;
-const FIT_UNIT_KILOGRAM = 1;
-const FIT_EVENT_SESSION = 8;
-const FIT_EVENT_LAP = 9;
-const FIT_EVENT_ACTIVITY = 26;
-const FIT_EVENT_STOP = 1;
-const FIT_TRIGGER_ACTIVITY_END = 0;
-const FIT_ACTIVITY_MANUAL = 0;
-
-function fitTimestamp(value) {
-  const ms = new Date(value).getTime();
-  if (!Number.isFinite(ms)) return 0;
-  return Math.max(0, Math.round(ms / 1000) - FIT_EPOCH_SECONDS);
-}
-
-/* A FIT file is a header, a run of messages and a checksum. Each message is
-   declared once — field numbers, sizes and base types — and every row after
-   that is just the values in the declared order. This writes exactly the five
-   message types the file needs and nothing else. */
-function createFitWriter() {
-  const bytes = [];
-  const defined = new Map();
-  let nextLocal = 0;
-
-  const u8 = (v) => bytes.push(v & 0xFF);
-  const u16 = (v) => { u8(v); u8(v >> 8); };
-  const u32 = (v) => { u16(v); u16(v >>> 16); };
-
-  function define(globalNum, fields) {
-    const key = `${globalNum}:${fields.map((f) => f.num).join(",")}`;
-    if (defined.has(key)) return defined.get(key);
-    const local = nextLocal++;
-    u8(0x40 | local); // definition record
-    u8(0);            // reserved
-    u8(0);            // little endian
-    u16(globalNum);
-    u8(fields.length);
-    fields.forEach((f) => {
-      u8(f.num);
-      u8(f.type.size);
-      u8(f.type.id);
-    });
-    defined.set(key, local);
-    return local;
-  }
-
-  return {
-    write(globalNum, fields, values) {
-      const local = define(globalNum, fields);
-      u8(local);
-      fields.forEach((f) => {
-        const v = values[f.num];
-        const out = v === undefined || v === null ? f.type.invalid : v;
-        if (f.type.size === 1) u8(out);
-        else if (f.type.size === 2) u16(out);
-        else u32(out);
-      });
-    },
-    finish() {
-      const data = Uint8Array.from(bytes);
-      const out = new Uint8Array(14 + data.length + 2);
-      const view = new DataView(out.buffer);
-      out[0] = 14;      // header length
-      out[1] = 0x20;    // protocol 2.0
-      view.setUint16(2, 2139, true); // profile version
-      view.setUint32(4, data.length, true);
-      out[8] = 0x2E; out[9] = 0x46; out[10] = 0x49; out[11] = 0x54; // ".FIT"
-      view.setUint16(12, fitCrc(out.subarray(0, 12)), true);
-      out.set(data, 14);
-      view.setUint16(out.length - 2, fitCrc(out.subarray(0, out.length - 2)), true);
-      return out;
-    },
-  };
-}
-
-/* Iron Log's exercises against FIT's own taxonomy: a category always, and the
-   specific exercise within it where FIT has one that is genuinely the same
-   movement. Where it does not, the category goes across alone rather than
-   the nearest-looking name — the category is what Strava's muscle map reads,
-   and a wrong name would put the work on the wrong muscle to save a label.
-
-   `byMethod` picks the barbell or dumbbell variant where FIT distinguishes
-   them and this app knows which was used. */
-const FIT_EXERCISE = {
-  // Chest
-  "bench-press": { category: 0, name: 1, byMethod: { Barbell: 1, Dumbbell: 6 } },
-  "incline-press": { category: 0, name: 8, byMethod: { Barbell: 8, Dumbbell: 9 } },
-  // FIT files dips under triceps. For chest dips the category is what the
-  // muscle map reads, so these go across as a chest press with no name.
-  dips: { category: 0, name: null },
-  "cable-fly": { category: 9, name: 0 },
-  "pec-deck": { category: 9, name: null },
-  "push-up": { category: 22, name: 77 },
-  // Back
-  "bent-over-row": { category: 23, name: 45, byMethod: { Barbell: 45, Dumbbell: 2 } },
-  "cable-row": { category: 23, name: 18 },
-  "chest-supported-row": { category: 23, name: 40 },
-  "db-row": { category: 23, name: 2 },
-  "lat-pulldown": { category: 21, name: 13 },
-  "pull-ups": { category: 21, name: 38 },
-  pullover: { category: 21, name: null },
-  "straight-arm-pulldown": { category: 21, name: 20 },
-  // Shoulders
-  "overhead-press": { category: 24, name: 14, byMethod: { Barbell: 14, Dumbbell: 24 } },
-  "front-raise": { category: 14, name: 10 },
-  "lateral-raise": { category: 14, name: 34 },
-  "upright-row": { category: 26, name: 24, byMethod: { Barbell: 2, Dumbbell: 6 } },
-  "face-pull": { category: 23, name: 5 },
-  "reverse-fly": { category: 9, name: null },
-  // Arms
-  "cable-curl": { category: 7, name: 8 },
-  "hammer-curl": { category: 7, name: 16 },
-  "incline-curl": { category: 7, name: 22 },
-  "preacher-curl": { category: 7, name: 19 },
-  "close-grip-bench": { category: 0, name: 4 },
-  "hack-dips": { category: 30, name: 40 },
-  "seated-dips": { category: 30, name: 0 },
-  "overhead-extension": { category: 30, name: 15 },
-  pushdown: { category: 30, name: 39 },
-  "skull-crusher": { category: 30, name: 13 },
-  // Legs
-  squat: { category: 28, name: 6 },
-  "leg-press": { category: 28, name: 0 },
-  lunge: { category: 17, name: 32 },
-  "leg-extension": { category: 28, name: null },
-  "leg-curl": { category: 15, name: 0 },
-  "seated-leg-curl": { category: 15, name: null },
-  "romanian-deadlift": { category: 8, name: 23 },
-  "good-morning": { category: 15, name: 2 },
-  "nordic-curl": { category: 15, name: null },
-  "glute-ham-raise": { category: 15, name: null },
-  deadlift: { category: 8, name: 0 },
-  "back-extension": { category: 13, name: null },
-  "hip-thrust": { category: 10, name: 1 },
-  "cable-kickback": { category: 10, name: null },
-  "hip-abduction": { category: 11, name: null },
-  "hip-adduction": { category: 11, name: null },
-  "bulgarian-split-squat": { category: 17, name: null, byMethod: { Barbell: 7, Dumbbell: 18 } },
-  "reverse-lunge": { category: 17, name: null, byMethod: { Barbell: 11 } },
-  "standing-calf-raise": { category: 1, name: 18 },
-  "seated-calf-raise": { category: 1, name: 6 },
-  "tibialis-raise": { category: 1, name: null },
-  // Forearms and grip
-  "wrist-curl": { category: 7, name: null, byMethod: { Barbell: 5, Dumbbell: 18 } },
-  "reverse-wrist-curl": { category: 7, name: null, byMethod: { Barbell: 4, Dumbbell: 17 } },
-  "reverse-curl": { category: 7, name: 31 },
-  "eugene-curl": { category: 7, name: null },
-  "reverse-eugene-curl": { category: 7, name: null },
-  "plate-pinch": { category: 3, name: null },
-  "dead-hang": { category: 3, name: 0 },
-  // Traps
-  shrug: { category: 26, name: 1, byMethod: { Barbell: 1, Dumbbell: 5 } },
-  "farmers-carry": { category: 3, name: 1 },
-  // Core
-  "ab-wheel": { category: 5, name: 18 },
-  "cable-crunch": { category: 6, name: 1 },
-  "hanging-leg-raise": { category: 16, name: 1 },
-  "reverse-crunch": { category: 6, name: null },
-  plank: { category: 19, name: 43 },
-  "wood-chop": { category: 4, name: 2 },
-  // Mobility. FIT's warm-up category carries stretches by name, including
-  // every one of the eight this app finishes a session with.
-  "worlds-greatest-stretch": { category: 31, name: 8 },
-  "couch-stretch": { category: 31, name: 45 },
-  "ninety-ninety-hip-switch": { category: 31, name: 74 },
-  "thoracic-rotations": { category: 31, name: 24 },
-  "cat-cow": { category: 31, name: 38 },
-  "doorway-chest-stretch": { category: 31, name: 70 },
-  "standing-quad-stretch": { category: 31, name: 61 },
-  "childs-pose": { category: 31, name: 39 },
-};
-
-// An exercise this app added after the table was written, or one the lifter
-// made themselves, still has a muscle. FIT's closest category for that muscle
-// beats dropping the set, and every group the app offers is in here — the
-// custom-exercise form only ever offers these — so the total-body fallback
-// below is for a group retired by a migration rather than anything a lifter
-// can pick.
-const FIT_CATEGORY_BY_MUSCLE = {
-  Chest: 0, Back: 23, "Front Delts": 24, "Side Delts": 14, "Rear Delts": 25,
-  Biceps: 7, Triceps: 30, Quads: 28, Hamstrings: 15, Glutes: 10, Calves: 1,
-  Shins: 1, Forearms: 7, Traps: 26, Core: 5, "Lower Back": 13,
-  Mobility: 31,
-};
-const FIT_CATEGORY_TOTAL_BODY = 29;
-
-/* The categories offered when an exercise has no mapping of its own. FIT's
-   own names, said the way a gym says them, with an example where the name
-   alone would not settle it, and grouped so the list can be scanned.
-
-   The first draft of this list carried the thirty-odd lifting categories and
-   stopped there, which meant a sled push had to be called a squat. The format
-   has fifty-three: sleds, sandbags, battle ropes, tyres and suspension
-   trainers all have their own, and a sled push is literally sled.push. If a
-   movement still has no home after all of them, the honest answer is not to
-   send it, which is the first choice on the list. */
-const FIT_SKIP = -1;
-const FIT_CATEGORY_CHOICES = [
-  { group: "Lifting", items: [
-    { value: 0, label: "Chest press", hint: "bench press, dips" },
-    { value: 9, label: "Flye", hint: "cable fly, pec deck" },
-    { value: 22, label: "Push-up" },
-    { value: 23, label: "Row", hint: "any row, face pull" },
-    { value: 21, label: "Pull-up or pulldown" },
-    { value: 24, label: "Shoulder press" },
-    { value: 14, label: "Lateral or front raise" },
-    { value: 25, label: "Shoulder stability", hint: "rotator cuff work" },
-    { value: 26, label: "Shrug", hint: "shrugs, upright rows" },
-    { value: 7, label: "Curl", hint: "biceps, wrist and forearm curls" },
-    { value: 30, label: "Triceps extension", hint: "pushdowns, skull crushers" },
-    { value: 28, label: "Squat", hint: "squats, leg press, leg extension" },
-    { value: 17, label: "Lunge", hint: "lunges, split squats" },
-    { value: 8, label: "Deadlift" },
-    { value: 15, label: "Leg curl", hint: "leg curls, good mornings" },
-    { value: 10, label: "Hip raise", hint: "hip thrusts, glute bridges" },
-    { value: 11, label: "Hip stability", hint: "abduction, adduction" },
-    { value: 13, label: "Back extension" },
-    { value: 1, label: "Calf raise" },
-    { value: 18, label: "Olympic lift", hint: "clean, snatch, jerk" },
-  ] },
-  { group: "Core", items: [
-    { value: 5, label: "Core", hint: "ab wheel, dead bugs" },
-    { value: 6, label: "Crunch" },
-    { value: 27, label: "Sit-up" },
-    { value: 16, label: "Leg raise", hint: "hanging leg raises" },
-    { value: 19, label: "Plank" },
-    { value: 4, label: "Chop or twist" },
-  ] },
-  { group: "Carries and odd objects", items: [
-    { value: 3, label: "Carry or hold", hint: "farmer's walks, hangs, pinches" },
-    { value: 45, label: "Sled", hint: "pushes, drags" },
-    { value: 44, label: "Sandbag" },
-    { value: 50, label: "Tyre flip" },
-    { value: 46, label: "Sledgehammer" },
-    { value: 38, label: "Battle rope" },
-    { value: 12, label: "Hip swing", hint: "kettlebell swings" },
-    { value: 49, label: "Suspension trainer", hint: "rings, straps" },
-    { value: 37, label: "Band work" },
-  ] },
-  { group: "Everything else", items: [
-    { value: 20, label: "Plyometric", hint: "jumps, box work" },
-    { value: 43, label: "Agility ladder" },
-    { value: 2, label: "Cardio or conditioning" },
-    { value: 35, label: "Movement", hint: "crawls, carries of your own body" },
-    { value: 31, label: "Stretch or warm-up" },
-    { value: 36, label: "Held position", hint: "yoga and the like" },
-    { value: 29, label: "Total body" },
-  ] },
-];
-
-
-/* An exercise the table has never heard of — one the lifter added — is sent
-   under its muscle's category, which is a guess the app makes rather than a
-   choice the lifter made. Before a file is written, those are put to them
-   once, and what they pick is kept here against the exercise's id.
-
-   Only at share time, and only for the ones with nothing behind them: an
-   exercise with a real mapping is never asked about, and a lifter who never
-   opens Strava is never asked at all. */
-const STRAVA_MAP_KEY = "strava-exercise-map";
-
-async function loadStravaExerciseMap() {
-  return (await safeGet(STRAVA_MAP_KEY)) || {};
-}
-
-async function saveStravaExerciseMap(map) {
-  await safeSet(STRAVA_MAP_KEY, map);
-}
-
-// True when the app would be guessing: nothing in the table, and nothing
-// saved by the lifter either.
-function fitMappingIsAGuess(ex, overrides) {
-  const id = (ex && ex.id) || "";
-  if (overrides && overrides[id] !== undefined) return false; // chosen, or chosen to skip
-  return !FIT_EXERCISE[id] && !FIT_EXERCISE[id.replace(/-\d+$/, "")];
-}
-
-// Every exercise in a session the app would have to guess at, once each.
-function unmappedExercises(session, overrides) {
-  const seen = new Set();
-  const out = [];
-  (session.exercises || []).forEach((ex) => {
-    if (seen.has(ex.id)) return;
-    const logged = (ex.sets || []).some((st) => parseInt(st.reps, 10) > 0);
-    if (!logged) return; // a set that was never filled in is not going anywhere
-    if (!fitMappingIsAGuess(ex, overrides)) return;
-    seen.add(ex.id);
-    out.push({ id: ex.id, name: ex.name, muscle: ex.muscle, suggested: fitExerciseFor(ex).category });
-  });
-  return out;
-}
-
-function fitExerciseFor(ex, overrides) {
-  const id = (ex && ex.id) || "";
-  // What the lifter chose for this exercise wins over anything derived.
-  if (overrides && overrides[id] !== undefined) {
-    return { category: overrides[id], name: null };
-  }
-  // Adding "Bench Press" when there is already a Bench Press gives the new
-  // one the id bench-press-2, so a copy of a known lift is matched as that
-  // lift rather than falling back to its muscle. Renaming a built-in does not
-  // change its id, so an edited exercise keeps its mapping too.
-  const mapped = FIT_EXERCISE[id] || FIT_EXERCISE[id.replace(/-\d+$/, "")];
-  if (mapped) {
-    const byMethod = mapped.byMethod && ex.method ? mapped.byMethod[ex.method] : undefined;
-    return { category: mapped.category, name: byMethod === undefined ? mapped.name : byMethod };
-  }
-  const byMuscle = FIT_CATEGORY_BY_MUSCLE[ex && ex.muscle];
-  return { category: byMuscle === undefined ? FIT_CATEGORY_TOTAL_BODY : byMuscle, name: null };
-}
-
-/* Every logged set of a session, in order, as the rows a FIT set message
-   wants. Weight is always in kilograms because that is the unit the field is
-   defined in — what the lifter sees in the app is a display choice. */
-function fitSetsFor(session, unit, overrides) {
-  const rows = [];
-  (session.exercises || []).forEach((ex) => {
-    // Told not to send this one: its sets are left out entirely. The session's
-    // own start, finish and length are untouched, because that is still how
-    // long you were there.
-    if (overrides && overrides[ex.id] === FIT_SKIP) return;
-    const fit = fitExerciseFor(ex, overrides);
-    (ex.sets || []).forEach((st) => {
-      const reps = parseInt(st.reps, 10);
-      if (!Number.isFinite(reps) || reps <= 0) return; // nothing was logged here
-      const weight = parseFloat(st.weight);
-      // Bodyweight (blank) and assistance (negative) are both "no weight
-      // lifted" as far as this field is concerned.
-      const kg = Number.isFinite(weight) && weight > 0
-        ? (unit === "lb" ? weight * 0.45359237 : weight)
-        : null;
-      rows.push({ reps, kg, category: fit.category, name: fit.name });
-    });
-  });
-  return rows;
-}
-
-function workoutFitFilename(session) {
-  const date = (session.date || dateStrOf(new Date())).replace(/-/g, "");
-  const split = (session.split || "workout").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `iron-log-${date}-${split || "workout"}.fit`;
-}
-
-/* The file itself. Start and finish come from the session; each set gets an
-   equal share of the real elapsed time, in the order it was logged. */
-function buildWorkoutFit(session, unit, overrides) {
-  const rows = fitSetsFor(session, unit, overrides);
-  if (rows.length === 0) return null;
-
-  const finishedAt = session.at || `${session.date}T12:00:00.000Z`;
-  const startedAt = session.startedAt || finishedAt;
-  const start = fitTimestamp(startedAt);
-  const finish = Math.max(start + rows.length, fitTimestamp(finishedAt));
-  const elapsed = finish - start;
-  const slot = elapsed / rows.length;
-
-  const w = createFitWriter();
-  w.write(FIT_MESG.fileId, FIT_FIELDS.fileId, {
-    0: FIT_FILE_ACTIVITY,
-    1: FIT_MANUFACTURER_DEVELOPMENT,
-    2: 0,
-    3: 0,
-    4: start,
-  });
-
-  rows.forEach((row, i) => {
-    const setStart = start + Math.round(i * slot);
-    const setEnd = start + Math.round((i + 1) * slot);
-    w.write(FIT_MESG.set, FIT_FIELDS.set, {
-      254: setEnd,
-      0: Math.max(1, setEnd - setStart) * 1000,
-      3: row.reps,
-      4: row.kg === null ? null : Math.round(row.kg * 16),
-      5: FIT_SET_ACTIVE,
-      6: setStart,
-      7: row.category,
-      8: row.name,
-      9: FIT_UNIT_KILOGRAM,
-      10: i,
-    });
-  });
-
-  const ms = elapsed * 1000;
-  w.write(FIT_MESG.lap, FIT_FIELDS.lap, {
-    254: 0, 253: finish, 2: start, 7: ms, 8: ms,
-    0: FIT_EVENT_LAP, 1: FIT_EVENT_STOP, 25: FIT_SPORT_TRAINING,
-  });
-  w.write(FIT_MESG.session, FIT_FIELDS.session, {
-    254: 0, 253: finish, 2: start, 7: ms, 8: ms,
-    5: FIT_SPORT_TRAINING, 6: FIT_SUBSPORT_STRENGTH,
-    0: FIT_EVENT_SESSION, 1: FIT_EVENT_STOP,
-    25: 0, 26: 1, 28: FIT_TRIGGER_ACTIVITY_END,
-  });
-  w.write(FIT_MESG.activity, FIT_FIELDS.activity, {
-    253: finish, 0: ms, 1: 1,
-    2: FIT_ACTIVITY_MANUAL, 3: FIT_EVENT_ACTIVITY, 4: FIT_EVENT_STOP,
-  });
-  return w.finish();
-}
-
-// Base64 without a library. Filesystem.writeFile takes base64 when no
-// encoding is given, which is how binary gets to disk on the device.
-function bytesToBase64(bytes) {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  if (typeof btoa === "function") return btoa(binary);
-  return "";
-}
-
-/* Writes the .fit next to where backups go: Downloads on a phone, the
-   browser's own download on the web. Same ladder of fallbacks as the backup
-   file, because the first writable directory is the one that exists on any
-   given Android version. */
-async function writeFitFile(filename, bytes) {
-  const Filesystem = capPlugin("Filesystem");
-  if (Filesystem) {
-    const data = bytesToBase64(bytes);
-    let lastError = null;
-    for (const target of BACKUP_TARGETS) {
-      try {
-        const res = await Filesystem.writeFile({
-          path: target.prefix + filename,
-          data,
-          directory: target.directory,
-          recursive: true,
-        });
-        return { label: target.label, path: (res && res.uri) || target.prefix + filename };
-      } catch (e) {
-        lastError = e;
-      }
-    }
-    throw lastError || new Error("Could not write the file.");
-  }
-
-  if (typeof document === "undefined" || typeof URL === "undefined" || !URL.createObjectURL) {
-    throw new Error("This build cannot save files.");
-  }
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-  return { label: "Downloads", path: filename };
-}
-
-const STRAVA_UPLOAD_URL = "https://www.strava.com/upload/select";
-
-function openStravaUpload() {
-  if (typeof window === "undefined") return;
-  window.open(STRAVA_UPLOAD_URL, "_blank", "noopener");
-}
 
 /* ---------------------------------------------------------------
    SCHEMA VERSIONING / MIGRATIONS
@@ -12257,181 +11702,34 @@ function WorkoutScreen({ split, selection, presetExercises, presetSupersets, res
 // has to be somewhere the user can paste from before Strava is any use.
 function StravaShareButton({ session, unit, compact }) {
   const [state, setState] = useState("idle");
-  const [file, setFile] = useState(null);   // where the .fit landed
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [ask, setAsk] = useState(null);     // exercises with no mapping, awaiting a choice
 
   async function handleShare() {
     const result = await shareText("Workout", stravaSummary(session, unit));
     setState(result);
   }
 
-  // The file carries the sets themselves, so this is the one that ends up as
-  // a strength activity rather than a paragraph.
-  async function handleFile() {
-    setBusy(true);
-    setError("");
-    try {
-      const overrides = await loadStravaExerciseMap();
-      // An exercise the lifter added themselves has no entry in the table,
-      // and the app would otherwise quietly file it under its muscle. Ask
-      // instead — once, here, and only for the ones it would be guessing at.
-      const missing = unmappedExercises(session, overrides);
-      if (missing.length) {
-        const picks = {};
-        missing.forEach((m) => { picks[m.id] = m.suggested; });
-        setAsk({ missing, picks, overrides });
-        setBusy(false);
-        return;
-      }
-      await write(overrides);
-    } catch (e) {
-      setError(String((e && e.message) || e));
-      setBusy(false);
-    }
-  }
-
-  async function write(overrides) {
-    const bytes = buildWorkoutFit(session, unit, overrides);
-    if (!bytes) {
-      const allSkipped = (session.exercises || []).length > 0
-        && (session.exercises || []).every((ex) => overrides && overrides[ex.id] === FIT_SKIP);
-      setError(allSkipped
-        ? "Every exercise in this session is set not to send, so there is nothing to put in a file."
-        : "Nothing to send — this session has no logged sets.");
-    } else {
-      const where = await writeFitFile(workoutFitFilename(session), bytes);
-      setFile(where);
-    }
-    setBusy(false);
-  }
-
-  // Keeps what was chosen, so the same exercise is never asked about twice.
-  async function confirmPicks() {
-    setBusy(true);
-    const next = { ...ask.overrides, ...ask.picks };
-    try {
-      await saveStravaExerciseMap(next);
-      setAsk(null);
-      await write(next);
-    } catch (e) {
-      setError(String((e && e.message) || e));
-      setBusy(false);
-    }
-  }
-
   const label = {
-    idle: "Share summary text",
+    idle: "Share to Strava",
     shared: "Shared — open Strava",
     copied: "Copied — open Strava",
     failed: "Could not share",
   }[state];
 
-  const btn = (primary) => ({
-    width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-    background: primary ? hexToRgba(COLORS.accent, 0.12) : COLORS.surfaceRaised,
-    border: `1px solid ${primary ? COLORS.accent : COLORS.line}`,
-    borderRadius: compact ? 8 : 12,
-    padding: compact ? "9px 0" : "13px 0",
-    color: primary ? COLORS.accent : COLORS.text,
-    fontFamily: "'Oswald', sans-serif", fontSize: compact ? 12 : 13.5,
-    textTransform: "uppercase", letterSpacing: 0.5,
-  });
-
   return (
     <div style={{ width: "100%" }}>
       <button
-        data-testid="strava-fit"
-        onClick={file ? openStravaUpload : handleFile}
-        disabled={busy}
-        style={btn(true)}
-      >
-        <TrendingUp size={compact ? 13 : 15} />
-        {busy ? "Building…" : file ? "Open Strava upload" : "Strava strength file"}
-      </button>
-
-      {ask && (
-        <div
-          data-testid="strava-map-ask"
-          style={{ marginTop: 8, background: COLORS.surface, border: `1px solid ${COLORS.accent}`, borderRadius: 12, padding: 12 }}
-        >
-          <div style={{ color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontSize: 13, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>
-            {ask.missing.length === 1 ? "One exercise needs a match" : `${ask.missing.length} exercises need a match`}
-          </div>
-          <div style={{ color: COLORS.textDim, fontSize: 11.5, lineHeight: 1.45, marginBottom: 10 }}>
-            Strava files every lift under one of its own exercise types. These are
-            yours, so it has no type for them. Pick the closest one — the app has
-            guessed from the muscle you gave each exercise — or tell it not to send
-            that exercise at all. Either way it remembers.
-          </div>
-          {ask.missing.map((m) => (
-            <div key={m.id} style={{ marginBottom: 10 }} data-testid="strava-map-row">
-              <div style={{ color: COLORS.text, fontSize: 12.5, marginBottom: 4 }}>
-                {m.name}
-                {m.muscle ? <span style={{ color: COLORS.textDim }}> · {m.muscle}</span> : null}
-              </div>
-              <select
-                data-testid={`strava-map-${m.id}`}
-                value={ask.picks[m.id]}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value, 10);
-                  setAsk((prev) => ({ ...prev, picks: { ...prev.picks, [m.id]: value } }));
-                }}
-                style={{
-                  width: "100%", background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`,
-                  borderRadius: 8, padding: "9px 10px", color: COLORS.text, fontSize: 13,
-                }}
-              >
-                <option value={FIT_SKIP}>Don&rsquo;t send this exercise</option>
-                {FIT_CATEGORY_CHOICES.map((g) => (
-                  <optgroup key={g.group} label={g.group}>
-                    {g.items.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}{c.hint ? ` — ${c.hint}` : ""}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => { setAsk(null); setBusy(false); }}
-              style={{ flex: 1, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "10px 0", color: COLORS.textDim, fontFamily: "'Oswald', sans-serif", fontSize: 12, textTransform: "uppercase" }}
-            >
-              Cancel
-            </button>
-            <button
-              data-testid="strava-map-confirm"
-              onClick={confirmPicks}
-              disabled={busy}
-              style={{ flex: 2, background: COLORS.accent, border: "none", borderRadius: 8, padding: "10px 0", color: COLORS.onAccent, fontFamily: "'Oswald', sans-serif", fontSize: 12, textTransform: "uppercase" }}
-            >
-              Save and build file
-            </button>
-          </div>
-        </div>
-      )}
-
-      {file && (
-        <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", wordBreak: "break-all", color: COLORS.text }}>{file.path}</div>
-          Saved to {file.label}. Upload it to Strava and it arrives as a weight training
-          activity with every set, rep and weight on it — tap above for the upload page,
-          then choose the file.
-        </div>
-      )}
-
-      <button
         data-testid="strava-text"
         onClick={state === "shared" || state === "copied" ? openStrava : handleShare}
-        style={{ ...btn(false), marginTop: 8 }}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+          background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: compact ? 8 : 12,
+          padding: compact ? "9px 0" : "13px 0", color: COLORS.text,
+          fontFamily: "'Oswald', sans-serif", fontSize: compact ? 12.5 : 13.5,
+          textTransform: "uppercase", letterSpacing: 0.5,
+        }}
       >
-        <Sparkles size={compact ? 12 : 14} /> {label}
+        <TrendingUp size={compact ? 13 : 15} /> {label}
       </button>
-
       {state === "copied" && (
         <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 1.4 }}>
           Your workout is on the clipboard. Paste it into the activity&rsquo;s description.
@@ -12441,9 +11739,6 @@ function StravaShareButton({ session, unit, compact }) {
         <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 1.4 }}>
           This device would not share or copy. You can still see the workout in History.
         </div>
-      )}
-      {error && (
-        <div style={{ color: COLORS.bad, fontSize: 11, marginTop: 6, lineHeight: 1.4 }}>{error}</div>
       )}
     </div>
   );
@@ -15575,7 +14870,7 @@ function SettingsScreen({ settings, onChange, onBack, onViewColour, onViewTraini
     // Auto-start, sound and vibration moved to Training Defaults, next to
     // the rest lengths themselves — the timer is one subject, not three
     // switches scattered down a list.
-    { key: "stravaShare", label: "Share to Strava", desc: "Adds two buttons when you finish a workout and on every past one. One writes a strength file Strava reads as a weight training activity, sets, reps and weights included; the other builds the session into text for the description." },
+    { key: "stravaShare", label: "Share to Strava", desc: "Add a share button when you finish a workout and on every past one. It builds your lifts into text, hands them to the share sheet, and opens Strava for you to paste into the activity." },
     { key: "randomizeSelection", label: "Randomize Exercise Selection", desc: "Off: pick exercises in ranked order. On: shuffle for variety." },
     { key: "showIntro", label: "Opening Animation", desc: "The geometric sequence when the app starts. Tap it to skip; turn it off here to go straight in. Skipped automatically if your phone is set to reduce motion." },
   ];
